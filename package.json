@@ -1,6 +1,6 @@
 {
   "name": "gag-dev-team-plugin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "description": "Instalador por projeto e configuração local do GAG Dev Team para Codex",
   "bin": {
