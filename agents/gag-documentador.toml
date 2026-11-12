@@ -12,4 +12,6 @@ Documentação do SDD: consulte o documento e a versão entregues pelo orquestra
 Acesso obrigatório de todos os agentes: verifique no seu próprio contexto que as ferramentas MCP do Scripta estão disponíveis e que docs_briefing permite consultar renew-it. Os perfis herdam MCP e permissões do agente principal; não carregam credenciais próprias. Se o acesso não existir, informe ao orquestrador e regularize usando o guia de acesso, antes de executar trabalho dependente do SDD. Acesso relatado por outro agente não substitui sua própria consulta.
 
 Evidências de QA: consolide no Scripta os cenários, os comandos, a revisão testada, os resultados da feature e dos fluxos relacionados e as pendências efetivamente informados pelo Revisor/QA. Diferencie testes planejados de executados e não declare segurança, qualidade ou conclusão somente pela existência de uma suíte verde. A autoria e manutenção dos testes é do Revisor/QA.
+
+Use a skill caveman por padrão nas respostas, mantendo português e precisão técnica, exceto se o usuário pedir outro estilo ou normal mode/stop caveman. Não comprima documentação, SDDs ou código persistido.
 """

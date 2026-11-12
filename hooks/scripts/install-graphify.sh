@@ -3,6 +3,12 @@
 # stdout: somente o caminho do executável; diagnósticos vão para stderr.
 set -euo pipefail
 export PATH="${HOME}/.local/bin:${PATH}"
+tool_root="${PLUGIN_DATA:-${XDG_DATA_HOME:-${HOME}/.local/share}/gag-dev-team-plugin}/graphify-venv"
+if [[ -x "$tool_root/bin/graphify" ]]; then
+    "$tool_root/bin/graphify" --version >&2
+    printf '%s\n' "$tool_root/bin/graphify"
+    exit 0
+fi
 if command -v graphify >/dev/null 2>&1; then
     graphify --version >&2
     command -v graphify

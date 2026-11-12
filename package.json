@@ -1,0 +1,31 @@
+{
+  "name": "gag-dev-team-plugin",
+  "version": "0.2.0",
+  "private": false,
+  "description": "Instalador por projeto e configuração local do GAG Dev Team para Codex",
+  "bin": {
+    "gag-dev-team": "bin/gag-dev-team.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Lecabe-Tech-Company/gag-dev-team-plugin.git"
+  },
+  "files": [
+    "bin/",
+    "scripts/*.py",
+    "agents/*.toml",
+    "hooks/",
+    "skills/",
+    "mcp/",
+    "ui/",
+    "plugin.json",
+    "mcp.json",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests -v"
+  }
+}

@@ -133,6 +133,11 @@ def inspect_access(root=ROOT, client_factory=Client):
         if server["url"] != ENDPOINT or server["type"] != "streamable-http":
             return "config"
         authorization = server.get("headers", {}).get("Authorization", "").strip()
+        local_token = root.parent / "scripta-token"
+        if root.parent.name == ".gag-dev-team" and local_token.is_file():
+            if local_token.is_symlink():
+                return "config"
+            authorization = "Bearer " + local_token.read_text(encoding="utf-8").strip()
         token = authorization.removeprefix("Bearer ").strip()
         if not authorization.startswith("Bearer ") or not token or token == "ds_gere_um_token_acima":
             return "token"
@@ -209,8 +214,10 @@ def output_for(status):
         "Ajude o usuário com o trecho do guia abaixo. Se não tiver conta, solicite uma ao responsável "
         "pelo Scripta; se faltar renew-it, solicite o compartilhamento ao responsável pela documentação.\n"
         f"Endpoint: {ENDPOINT}\n"
-        "Configure a credencial apenas na cópia LOCAL INSTALADA do plugin, no cabeçalho Authorization "
-        f"de {ROOT / 'mcp.json'}, como Bearer seguido do token pessoal. "
+        "Se instalou pela CLI, execute npx --yes github:Lecabe-Tech-Company/gag-dev-team-plugin configure "
+        "na pasta do projeto e salve a chave na janela local. "
+        "Na instalação manual pelo diretório de plugins, configure Authorization apenas na cópia instalada "
+        f"de {ROOT / 'mcp.json'}, nunca no pacote fonte. "
         "Não altere o pacote fonte com segredos, não peça tokens no chat nem os exiba. "
         "Reinicie o cliente após configurar. O placeholder não é uma credencial válida.\n"
         "Trecho do guia original; os exemplos usam sistema-financeiro: para este plugin, adapte para renew-it.\n\n"

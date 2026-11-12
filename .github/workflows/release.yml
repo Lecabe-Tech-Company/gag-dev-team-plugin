@@ -1,0 +1,46 @@
+name: Release do plugin
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gag-dev-team-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - name: Preparar teste de integração Graphify
+        run: python -m pip install graphifyy
+      - name: Testar feature e fluxos relacionados
+        run: python -m unittest discover -s tests -v
+      - name: Verificar JavaScript e pacote
+        run: |
+          for file in bin/*.cjs mcp/*.cjs; do node --check "$file"; done
+          npm pack --dry-run
+      - name: Empacotar release estável
+        id: package
+        run: |
+          python scripts/build_release.py --output dist > release-result.json
+          python -c "import json,os; r=json.load(open('release-result.json')); f=open(os.environ['GITHUB_OUTPUT'],'a'); print('tag='+r['tag'],file=f)"
+      - name: Publicar release com checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.package.outputs.tag }}" dist/*.zip dist/SHA256SUMS --target "${{ github.sha }}" --generate-notes --latest

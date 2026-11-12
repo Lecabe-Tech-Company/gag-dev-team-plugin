@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Conecte seu Scripta</title>
+  <link rel="icon" href="brand/scripta-icon.png" type="image/png">
+  <link rel="stylesheet" href="configure.css">
+  <script src="configure.js" defer></script>
+</head>
+<body>
+  <main class="connection">
+    <aside class="brand-panel" aria-label="Scripta">
+      <img class="brand-logo" src="brand/scripta-logo-h-dark.png" alt="Scripta">
+      <div class="brand-story">
+        <div class="knowledge-card">
+          <img src="brand/scripta-icon.png" alt="" class="book-icon">
+          <span class="document-tag">Conhecimento conectado</span>
+          <h2>Uma fonte de verdade.<br>Todo o seu contexto.</h2>
+          <div class="document-lines" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="document-footer"><span class="status-dot"></span>Regras, decisões e documentação</div>
+        </div>
+        <p class="brand-caption">O conhecimento do seu projeto,<br>sempre ao alcance.</p>
+      </div>
+      <p class="brand-signature">Documentação viva. Contexto que acompanha.</p>
+    </aside>
+    <section class="form-panel" aria-labelledby="connection-title">
+      <img class="mobile-logo" src="brand/scripta-logo-h.png" alt="Scripta">
+      <p class="eyebrow">SEU CONHECIMENTO, CONECTADO</p>
+      <h1 id="connection-title">Conecte seu<br>Scripta.</h1>
+      <p class="intro">Adicione sua chave de acesso para consultar a documentação e manter o contexto do seu projeto.</p>
+      <form id="configure-form">
+        <label for="token">Chave de acesso do Scripta</label>
+        <div class="password-field">
+          <input id="token" name="token" type="password" required maxlength="4096"
+            autocomplete="off" spellcheck="false" placeholder="Cole sua chave de acesso">
+          <button id="toggle-token" type="button" aria-label="Mostrar chave de acesso">Mostrar</button>
+        </div>
+        <p class="hint">Sua chave permanece apenas neste computador.</p>
+        <button type="submit" id="save">Salvar conexão</button>
+      </form>
+      <p id="status" role="status" aria-live="polite">Pronto para conectar.</p>
+      <details class="access-guide">
+        <summary>Como obter minha chave de acesso?</summary>
+        <ol>
+          <li><strong>Acesse sua conta no Scripta.</strong> Se ainda não tiver uma, solicite o acesso ao responsável pelo Scripta.</li>
+          <li><strong>Abra a área de Tokens de API.</strong> Ela está nas configurações da conta ou do projeto.</li>
+          <li><strong>Crie uma chave para esta conexão.</strong> Copie e guarde o valor: ele é exibido apenas uma vez.</li>
+          <li><strong>Confira o acesso ao projeto renew-it.</strong> Para consultar e atualizar a documentação, solicite a permissão de Editor ao responsável.</li>
+          <li><strong>Cole a chave acima e salve.</strong> Não compartilhe sua chave em conversas ou documentos.</li>
+        </ol>
+        <p>Os nomes dos menus podem variar conforme a versão do Scripta. Se o projeto não aparecer, peça seu compartilhamento com a conta associada à chave.</p>
+      </details>
+      <p class="privacy-note">Uma conexão privada com o conhecimento do seu projeto.</p>
+    </section>
+  </main>
+</body>
+</html>
