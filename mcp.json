@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "streamable-http",
+      "url": "https://scripta-mcp.lecabe.com.br/mcp",
+      "headers": {
+        "Authorization": "Bearer ds_gere_um_token_acima"
+      }
+    },
+    "context7": {
+      "type": "streamable-http",
+      "url": "https://mcp.context7.com/mcp/oauth"
+    }
+  }
+}

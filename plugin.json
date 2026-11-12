@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "gag-dev-team-plugin",
+  "version": "0.1.0",
+  "description": "Ferramentas e fluxos de trabalho do time de desenvolvimento GAG.",
+  "author": {
+    "name": "Lecabe Tech Company"
+  },
+  "repository": "https://github.com/Lecabe-Tech-Company/gag-dev-team-plugin",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "GAG Dev Team",
+        "shortDescription": "Ferramentas e fluxos do time de desenvolvimento GAG.",
+        "developerName": "Lecabe Tech Company",
+        "category": "Developer Tools"
+      },
+      "onboardingSkill": "./skills/setup-team/SKILL.md"
+    }
+  }
+}

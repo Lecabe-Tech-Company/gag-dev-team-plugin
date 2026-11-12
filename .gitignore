@@ -1,0 +1,21 @@
+# Credenciais e configuracoes locais
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Dependencias e artefatos gerados
+node_modules/
+.venv/
+__pycache__/
+dist/
+build/
+coverage/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Grafos locais e relatórios gerados
+graphify-out/
