@@ -89,17 +89,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
 
 
-    def test_native_approval_events_route_to_canonical_prompt_handler(self):
+    def test_native_lifecycle_and_graphify_events_remain_installed(self):
         self.installer.install(self.project, source=ROOT, harnesses=list(LAYOUTS))
-        configs = [(".codex/hooks.json", "UserPromptSubmit", "hooks"),
-                   (".claude/settings.json", "UserPromptSubmit", "hooks"),
-                   (".cursor/hooks.json", "beforeSubmitPrompt", "hooks"),
-                   (".agents/hooks.json", "PreInvocation", "gag-dev-team")]
-        for path, event, container in configs:
+        configs = [(".codex/hooks.json", ("SessionStart", "Stop", "PreToolUse"), "hooks"),
+                   (".claude/settings.json", ("SessionStart", "Stop", "PreToolUse"), "hooks"),
+                   (".cursor/hooks.json", ("sessionStart", "stop", "preToolUse"), "hooks"),
+                   (".agents/hooks.json", ("SessionStart", "Stop", "PreToolUse"), "gag-dev-team")]
+        for path, events, container in configs:
             config = json.loads((self.project / path).read_text())
             with self.subTest(path=path):
-                self.assertIn(event, config[container])
-                self.assertIn("UserPromptSubmit", json.dumps(config[container][event]))
+                for event in events:
+                    self.assertIn(event, config[container])
+                self.assertIn("PreToolUse", json.dumps(config[container][events[-1]]))
 
     def test_role_model_aliases_and_antigravity_effort_are_native(self):
         self.installer.install(self.project, source=ROOT, harnesses=["claude", "antigravity"])
@@ -113,6 +114,19 @@ class AdapterTests(unittest.TestCase):
                 self.assertNotIn("effort:", anti)
                 if claude_model == "haiku":
                     self.assertNotIn("effort:", claude)
+
+    def test_generated_guidance_keeps_human_authorization_without_literal_ceremony(self):
+        self.installer.install(self.project, source=ROOT, harnesses=list(LAYOUTS))
+        paths = ("AGENTS.md", "CLAUDE.md", ".cursor/rules/gag-dev-team.mdc", ".agents/rules/gag-dev-team.md")
+        for name in paths:
+            text = (self.project / name).read_text().casefold()
+            with self.subTest(path=name):
+                # This proves instructions retain the human contract; it does not classify user text.
+                for concept in ("context", "conversa", "sil", "negativa", "ambiguidade", "escopo", "evid", "auxiliar"):
+                    self.assertIn(concept, text)
+                self.assertTrue("anteced" in text or "ordem entre aceite" in text)
+                for obsolete in ("pe\u00e7a ao usu\u00e1rio a frase exata", "n\u00e3o execute approve-sdd pelo agente"):
+                    self.assertNotIn(obsolete, text)
 
 if __name__ == "__main__":
     unittest.main()

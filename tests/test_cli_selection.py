@@ -3,6 +3,7 @@ import contextlib
 import importlib
 import io
 import json
+import subprocess
 import sys
 from unittest.mock import Mock, patch
 
@@ -55,3 +56,41 @@ class CliSelectionTests(ProjectCase):
         with patch("releases.install_latest", return_value=runtime) as latest, patch.object(self.cli, "install", side_effect=AssertionError("local branch fallback is forbidden")), contextlib.redirect_stdout(io.StringIO()):
             self.cli.main(["install", "--project", str(self.project), "--harness", "claude,cursor"])
         latest.assert_called_once_with(str(self.project), harnesses=["claude", "cursor"])
+
+    def test_cli_records_existing_contextual_consent_without_prompt_or_prior_declaration(self):
+        stdin = Mock()
+        stdin.isatty.return_value = True
+        evidence = "Pode corrigir o SDD apresentado."
+        with patch.object(sys, "stdin", stdin), patch("builtins.input", side_effect=AssertionError("do not ask for repeated approval")), contextlib.redirect_stdout(io.StringIO()):
+            self.cli.main(["approve-sdd", "--project", str(self.project), "--reference", "ESP-QA", "--sdd-version", "24", "--evidence", evidence, "--recorded-by", "orquestrador"])
+        path = self.project / ".gag-dev-team/sdd.json"
+        state = json.loads(path.read_text())
+        self.assertEqual(subprocess.run(["git", "check-ignore", "-q", "--", ".gag-dev-team/sdd.json"], cwd=self.project).returncode, 0)
+        self.assertIs(state["approved"], True)
+        self.assertEqual(state["reference"], "ESP-QA")
+        self.assertEqual(state["version"], "24")
+        self.assertEqual(state["evidence"], evidence)
+        self.assertEqual(state["recorded_by"], "orquestrador")
+        before = path.read_bytes()
+        output = io.StringIO()
+        with patch("builtins.input", side_effect=AssertionError("no approval ceremony")), contextlib.redirect_stdout(output):
+            self.cli.main(["declare-sdd", "--project", str(self.project), "--reference", "ESP-QA", "--sdd-version", "24"])
+        self.assertEqual(path.read_bytes(), before)
+        self.assertNotIn("aguarde", output.getvalue().lower())
+
+    def test_cli_missing_evidence_does_not_prompt_or_invent_consent(self):
+        stdin = Mock()
+        stdin.isatty.return_value = True
+        with patch.object(sys, "stdin", stdin), patch("builtins.input", side_effect=AssertionError("no literal-prompt fallback")), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                self.cli.main(["approve-sdd", "--project", str(self.project), "--reference", "ESP-QA", "--sdd-version", "24", "--recorded-by", "orquestrador"])
+        self.assertNotEqual(caught.exception.code, 0)
+        self.assertFalse((self.project / ".gag-dev-team/sdd.json").exists())
+
+    def test_cli_legacy_confirm_supports_manual_confirmation_before_declaration(self):
+        with patch("builtins.input", side_effect=AssertionError("explicit terminal flag must not ask again")), contextlib.redirect_stdout(io.StringIO()):
+            self.cli.main(["approve-sdd", "--project", str(self.project), "--reference", "ESP-QA", "--sdd-version", "24", "--confirm"])
+        state = json.loads((self.project / ".gag-dev-team/sdd.json").read_text())
+        self.assertIs(state["approved"], True)
+        self.assertEqual(state["approval_source"], "terminal-confirmation")
+        self.assertNotIn("evidence", state)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "gag-dev-team-plugin",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Ferramentas e fluxos de trabalho do time de desenvolvimento GAG.",
   "author": {
     "name": "Lecabe Tech Company"

@@ -4,7 +4,9 @@ Seu time de desenvolvimento com IA, organizado para entregar mais, gastar menos 
 
 Transforme solicitações em entregas com planejamento claro, desenvolvimento focado, revisão e documentação atualizada. Cada função recebe o modelo adequado ao trabalho, buscando reduzir o custo sem abrir mão do raciocínio necessário.
 
-Você conversa com o orquestrador e aprova o plano antes do desenvolvimento. A prioridade é fazer bem feito, mesmo quando isso leva mais tempo.
+Você conversa com o orquestrador e autoriza o escopo do SDD no contexto da conversa antes do desenvolvimento. Não há frase ou formato obrigatório; um aceite claro pode ocorrer antes do registro local.
+
+A prioridade é fazer bem feito, mesmo quando isso leva mais tempo.
 
 Compatível com **Codex, Claude Code, Cursor e Antigravity**. Escolha um ou vários durante a instalação.
 

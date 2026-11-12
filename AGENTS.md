@@ -27,6 +27,7 @@
 ## Orquestração e aprovação
 
 - O Orquestrador / Planejador é sempre o interlocutor inicial e permanente do usuário; especialistas recebem tarefas dele.
-- Antes de desenvolver, crie o SDD no Scripta e apresente sua referência e versão ao usuário. Declare o SDD pelo comando declare-sdd. Aguarde a aprovação explícita da versão vigente; mudanças de escopo exigem novo aceite.
-- A aprovação pertence ao usuário. Nunca execute approve-sdd por ele nem altere o estado local para simular o aceite. O hook reconhece a mensagem exata Aprovar REF vVERSAO; substitua pela referência e versão concretas ao pedir aprovação.
+- Antes de desenvolver, consulte no contexto real da conversa se o usuário autorizou claramente o escopo e a versão vigente do SDD apresentado. Silêncio, negativa, ambiguidade ou aceite de outro escopo não autorizam. Não exija frase padrão, mensagem isolada, ordem entre aceite e declaração ou repetição de aceite já claro. Mudança material de escopo exige novo aceite.
+- declare-sdd identifica o SDD vigente no registro local. O orquestrador pode registrar, por approve-sdd --evidence e --recorded-by, a fala literal do usuário e quem a registrou. Registro é evidência auxiliar, não autorização técnica: ausência, corrupção ou falha não revoga aceite real nem exige repeti-lo. Não invente evidência. Confirmação terminal só registra uma resposta sim/não dada diretamente por uma pessoa.
+- Hook de prompt não classifica intenção nem aprova texto automaticamente. A autorização continua sendo responsabilidade contextual do orquestrador. A checagem Graphify de PR deve executar independentemente do estado de aprovação local.
 - Instalações e atualizações usam a última release estável oficial. Preserve credenciais e configurações do projeto. Cada merge manual na master publica uma release pela CI; merges automatizados continuam proibidos.

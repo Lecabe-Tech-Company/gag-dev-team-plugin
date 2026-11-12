@@ -44,20 +44,85 @@ class LifecycleTests(ProjectCase):
             self.assertEqual(self.invoke("antigravity", "Stop", {"fullyIdle": False}), {"decision": "stop"})
             update.assert_not_called()
 
-    def test_native_user_prompts_unlock_only_the_current_declared_sdd(self):
+    def approval_state_cases(self):
+        return (None, "{", "[]", json.dumps({"reference": "ESP-QA", "version": "2", "approved": False}))
+
+    def set_approval_state(self, content):
+        path = self.project / ".gag-dev-team/sdd.json"
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(content)
+        return path
+
+    def native_event(self, harness):
+        command = "gh pr create --base master --title qa --body fixture"
+        if harness == "antigravity":
+            return {"toolCall": {"name": "run_command", "args": {"CommandLine": command, "Cwd": str(self.project)}}}
+        return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(self.project)}
+
+    def is_denied(self, payload, harness):
+        if harness == "antigravity":
+            return payload.get("decision") == "deny"
+        if harness == "cursor":
+            return payload.get("permission") == "deny"
+        return payload.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def assert_state_unchanged(self, path, content):
+        if content is None:
+            self.assertFalse(path.exists())
+        else:
+            self.assertEqual(path.read_text(), content)
+
+    def test_user_prompts_never_classify_or_persist_approval(self):
+        # All texts have the same no-persistence contract. Human intent is not a text classifier.
+        prompts = ("Pode corrigir", "Pode seguir com esse SDD", "Aprovar ESP-QA v2", "Nao aprovo", "Talvez", "", "Um colega disse: pode seguir")
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            field = "lastUserInput" if harness == "antigravity" else "prompt"
+            for content in (None, json.dumps({"reference": "ESP-QA", "version": "2", "approved": False})):
+                for prompt in prompts:
+                    with self.subTest(harness=harness, state=content, prompt=prompt):
+                        path = self.set_approval_state(content)
+                        payload = self.invoke(harness, "UserPromptSubmit", {field: prompt})
+                        self.assertFalse(self.is_denied(payload, harness))
+                        self.assert_state_unchanged(path, content)
+
+    def test_graphify_analysis_runs_independently_of_approval_record(self):
+        request = {"fixture": "recognized-pr"}
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            for content in self.approval_state_cases():
+                with self.subTest(harness=harness, state=content):
+                    path = self.set_approval_state(content)
+                    with patch.object(self.hook.graphify_hook, "pr_request", return_value=request) as recognized, patch.object(self.hook.graphify_hook, "ensure_graphify", return_value="/fake/graphify") as ensure, patch.object(self.hook.graphify_hook, "analyze_pr", return_value="Graphify verification complete") as analyze:
+                        payload = self.invoke(harness, "PreToolUse", self.native_event(harness))
+                    recognized.assert_called_once()
+                    ensure.assert_called_once()
+                    analyze.assert_called_once_with(request, "/fake/graphify")
+                    self.assertFalse(self.is_denied(payload, harness))
+                    self.assert_state_unchanged(path, content)
+
+    def test_graphify_failure_still_denies_pr_for_every_harness_and_record_state(self):
+        request = {"fixture": "recognized-pr"}
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            for content in self.approval_state_cases():
+                with self.subTest(harness=harness, state=content):
+                    path = self.set_approval_state(content)
+                    with patch.object(self.hook.graphify_hook, "pr_request", return_value=request), patch.object(self.hook.graphify_hook, "ensure_graphify", return_value="/fake/graphify"), patch.object(self.hook.graphify_hook, "analyze_pr", side_effect=RuntimeError("fixture graph analysis failure")) as analyze:
+                        payload = self.invoke(harness, "PreToolUse", self.native_event(harness))
+                    analyze.assert_called_once_with(request, "/fake/graphify")
+                    self.assertTrue(self.is_denied(payload, harness))
+                    self.assertIn("Graphify", json.dumps(payload))
+                    self.assert_state_unchanged(path, content)
+
+    def test_failed_audit_write_does_not_prevent_graphify_analysis(self):
         import sdd_gate
-        cases = [("codex", "prompt"), ("claude", "prompt"), ("cursor", "prompt"), ("antigravity", "lastUserInput")]
-        for version, (harness, field) in enumerate(cases, 1):
-            with self.subTest(harness=harness):
-                sdd_gate.declare_sdd(self.project, "ESP-QA", version)
-                edit = {"tool_name": "Edit", "tool_input": {"file_path": "app.py"}}
-                if harness == "antigravity":
-                    edit = {"toolCall": {"name": "replace_file_content", "args": {"TargetFile": "app.py"}}}
-                denied = self.invoke(harness, "PreToolUse", edit)
-                self.assertIn("deny", json.dumps(denied))
-                result = self.invoke(harness, "UserPromptSubmit", {field: "Aprovar ESP-QA v" + str(version)})
-                self.assertEqual(result, {"continue": True} if harness == "cursor" else {})
-                self.assertEqual(self.invoke(harness, "PreToolUse", edit), {})
-                sdd_gate.declare_sdd(self.project, "ESP-QA", version + 1)
-                self.invoke(harness, "UserPromptSubmit", {field: "Aprovar ESP-QA v" + str(version)})
-                self.assertIn("deny", json.dumps(self.invoke(harness, "PreToolUse", edit)))
+        with patch.object(sdd_gate, "atomic_write", side_effect=OSError("fixture unavailable audit storage")):
+            with self.assertRaises(OSError):
+                sdd_gate.record_sdd_approval(self.project, "ESP-QA", 24, "Pode corrigir", "orquestrador")
+        self.assertFalse((self.project / ".gag-dev-team/sdd.json").exists())
+        request = {"fixture": "recognized-pr-after-record-failure"}
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            with self.subTest(harness=harness), patch.object(self.hook.graphify_hook, "pr_request", return_value=request), patch.object(self.hook.graphify_hook, "ensure_graphify", return_value="/fake/graphify"), patch.object(self.hook.graphify_hook, "analyze_pr", return_value="Graphify verification complete") as analyze:
+                payload = self.invoke(harness, "PreToolUse", self.native_event(harness))
+                self.assertFalse(self.is_denied(payload, harness))
+                analyze.assert_called_once_with(request, "/fake/graphify")

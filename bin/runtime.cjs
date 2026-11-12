@@ -25,7 +25,7 @@ exports.hook = (harness, event) => {
     process.stdout.write(child.stdout);
   } catch {
     process.stdout.write(JSON.stringify(event === 'PreToolUse'
-      ? deny(harness, 'Não foi possível verificar o SDD. Regularize a configuração antes de desenvolver.')
+      ? deny(harness, 'Não foi possível executar o hook do time. Regularize a integração; a análise Graphify do PR continua obrigatória e deve concluir antes da abertura.')
       : (harness === 'antigravity' && event === 'Stop' ? {decision:'stop'} : {})) + '\n');
   }
 };

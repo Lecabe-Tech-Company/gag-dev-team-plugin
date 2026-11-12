@@ -151,14 +151,16 @@ def choose_harnesses(project, requested):
 
 def main(argv=None):
     from releases import install_latest, update_project
-    from sdd_gate import declare_sdd, approve_sdd
+    from sdd_gate import declare_sdd, approve_sdd, record_sdd_approval
     parser = argparse.ArgumentParser(description="GAG Dev Team: seu time de desenvolvimento, organizado.")
     parser.add_argument("command", choices=["install", "configure", "update", "declare-sdd", "approve-sdd"])
     parser.add_argument("--project", default=".", help="Pasta do projeto")
     parser.add_argument("--harness", action="append", help="Ambientes separados por vírgula; sem opção, mostra seleção inicial")
     parser.add_argument("--reference", help="Código ou slug do SDD no Scripta")
     parser.add_argument("--sdd-version", help="Número da versão vigente do SDD")
-    parser.add_argument("--confirm", action="store_true", help="Confirmação explícita do usuário para approve-sdd")
+    parser.add_argument("--confirm", action="store_true", help="Confirmação sim/não feita diretamente por uma pessoa no terminal")
+    parser.add_argument("--evidence", help="Trecho literal do aceite já dado pelo usuário na conversa")
+    parser.add_argument("--recorded-by", help="Pessoa ou agente que registrou a evidência contextual")
     parser.add_argument("--no-browser", action="store_true", help="Apenas informar a URL local")
     args = parser.parse_args(argv)
     try:
@@ -177,15 +179,23 @@ def main(argv=None):
             return
         if args.command == "declare-sdd":
             state = declare_sdd(args.project, args.reference, args.sdd_version)
-            print(f"SDD declarado: {state['reference']} v{state['version']}. Aguarde a aprovação explícita do usuário.")
+            print(f"SDD declarado: {state['reference']} v{state['version']}. O orquestrador avalia o aceite no contexto da conversa.")
             return
         if args.command == "approve-sdd":
+            if args.evidence is not None or args.recorded_by is not None:
+                if args.evidence is None or args.recorded_by is None:
+                    raise ValueError("Use --evidence e --recorded-by juntos para registrar o aceite contextual.")
+                state = record_sdd_approval(args.project, args.reference, args.sdd_version,
+                                            args.evidence, args.recorded_by)
+                print(f"Evidência contextual registrada para SDD {state['reference']} v{state['version']}.")
+                return
+
             explicit = args.confirm
             if not explicit and sys.stdin.isatty():
-                phrase = f"Aprovar {args.reference} v{args.sdd_version}"
-                explicit = input(f"Confira o SDD no Scripta. Digite exatamente '{phrase}': ").strip() == phrase
+                answer = input(f"A pessoa usuária confirmou o SDD {args.reference} v{args.sdd_version}? [s/N] ").strip().casefold()
+                explicit = answer in ("s", "sim", "y", "yes")
             state = approve_sdd(args.project, args.reference, args.sdd_version, explicit=explicit)
-            print(f"SDD {state['reference']} v{state['version']} aprovado pelo usuário.")
+            print(f"Confirmação terminal registrada para SDD {state['reference']} v{state['version']}.")
             return
         server = create_server(args.project)
         url = f"http://127.0.0.1:{server.server_port}/{server.session}/"
@@ -209,6 +219,8 @@ def main(argv=None):
     except subprocess.CalledProcessError:
         parser.exit(1, "Instalação não concluída. Execute em um projeto Git válido e confira suas permissões.\n")
     except (OSError, ValueError, RuntimeError) as error:
+        if args.command in ("declare-sdd", "approve-sdd"):
+            parser.exit(1, f"Registro local não concluído: {error}. O estado local não decide se a conversa autorizou; use o contexto real sem repetir aceite claro por causa desta falha.\n")
         parser.exit(1, f"Configuração não concluída: {error}\n")
 
 

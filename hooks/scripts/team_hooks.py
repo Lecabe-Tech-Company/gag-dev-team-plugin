@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "hooks/scripts"))
-from sdd_gate import gate, deny, record_user_approval
+from sdd_gate import deny
 from releases import update_project
 from harness_adapters import guidance
 import check_scripta
@@ -38,8 +38,8 @@ def main():
     event = json.load(sys.stdin)
     project = ROOT.parent.parent
     if event_name == "UserPromptSubmit":
-        prompt = event.get("lastUserInput") if harness == "antigravity" else event.get("prompt")
-        record_user_approval(project, prompt)
+        # Native prompt hooks cannot reliably distinguish consent from quoted or
+        # ambiguous text. Keep their output neutral; the orchestrator reads context.
         print(json.dumps({"continue": True} if harness == "cursor" else {}))
         return
     if event_name in ("SessionStart", "Stop"):
@@ -64,10 +64,6 @@ def main():
             except Exception:
                 messages.append("A preparação do Graphify está pendente; confira o terminal de configuração.")
         print(json.dumps(context("\n\n".join(messages), harness), ensure_ascii=True))
-        return
-    decision = gate(event, project, harness)
-    if decision:
-        print(json.dumps(decision))
         return
     try:
         request = graphify_hook.pr_request(normalize(event, harness))
