@@ -35,6 +35,10 @@ def ensure_graphify():
         if candidate and Path(candidate).is_file():
             run([candidate, "--version"], timeout=20)
             return candidate
+    if os.name == "nt" and ROOT.parent.name == ".gag-dev-team":
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from project_install import install_graphify
+        return install_graphify(ROOT)
     bash = shutil.which("bash")
     if not bash:
         raise GateError("Instalação exige Bash (Linux/WSL ou Git Bash), Python 3.10+ e acesso ao índice de pacotes.")
@@ -209,6 +213,9 @@ def main():
     mode = sys.argv[1]
     event = json.load(sys.stdin)
     if mode == "session":
+        if ROOT.parent.name == ".gag-dev-team" and not (ROOT.parent / "scripta-token").is_file():
+            print(json.dumps(respond("SessionStart", "Execute gag-dev-team configure e salve a chave Scripta antes de preparar Graphify.")))
+            return
         try:
             binary = ensure_graphify()
             message = (

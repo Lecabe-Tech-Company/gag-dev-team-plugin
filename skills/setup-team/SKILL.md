@@ -1,18 +1,17 @@
 ---
 name: setup-team
-description: Configurar os cinco perfis de agentes do GAG Dev Team no projeto após instalar o plugin ou quando o usuário pedir a configuração do time.
+description: Instalar e configurar o GAG Dev Team em Codex, Claude Code, Cursor ou Antigravity.
 ---
 
 # Configurar o time
 
-Use esta skill na configuração inicial do plugin ou quando o usuário solicitar a instalação dos perfis em um projeto.
+1. Identifique a raiz Git do projeto de destino. Preserve configurações existentes e resolva colisões com o usuário.
+2. Execute na raiz: npx --yes github:Lecabe-Tech-Company/gag-dev-team-plugin install. A primeira instalação oferece seleção múltipla dos quatro ambientes; para execução não interativa use --harness codex,claude,cursor,antigravity com os ambientes desejados.
+3. A CLI baixa exclusivamente a última release estável oficial com checksum. Se não houver release ou a rede falhar, informe a falha; nunca substitua por uma branch.
+4. Execute configure pelo mesmo comando npx. A janela local recebe a chave do Scripta; nunca solicite credenciais no chat. Salvar prepara o acesso e dispara a instalação do Graphify.
+5. Reabra os ambientes selecionados e conclua as permissões e autenticações nativas. Context7 usa OAuth. Cada agente confirma seu acesso ao Scripta e consulta docs_briefing de renew-it.
+6. O orquestrador conversa com o usuário; desenvolvimento somente após aprovação explícita do SDD vigente. Declare a referência e versão por declare-sdd e peça a frase exata Aprovar REF vVERSAO. Nunca aprove pelo usuário.
+7. Cada harness recebe seus formatos nativos e modelos relativos por função. Não prometa equivalência de raciocínio nem disponibilidade de modelos. Preserve escolhas explícitas já configuradas. No Cursor, o modelo da conversa principal depende do seletor do cliente; as regras mantêm a identidade do orquestrador.
+8. SessionStart e Stop verificam releases com os hooks habilitados. update permite atualização manual. Preserve alterações locais e a chave em caso de falha.
 
-1. Identifique a raiz do projeto que o usuário está configurando. Se não houver um destino inequívoco, pergunte qual projeto deve receber os perfis.
-2. Localize a raiz instalada deste plugin a partir deste arquivo.
-3. Execute o script empacotado `scripts/install-agents.py --project CAMINHO_ABSOLUTO_DO_PROJETO` com Python 3.10+. O caminho do script parte da raiz do plugin; não execute um arquivo homônimo no projeto de destino.
-4. O script instala os cinco TOMLs em `.codex/agents/`. Se houver perfil com conteúdo diferente, ele recusa sobrescrever. Informe o conflito e preserve a configuração existente.
-5. Oriente a reiniciar a sessão do Codex para recarregar os perfis. Os arquivos não mudam automaticamente o modelo da conversa principal nem iniciam agentes.
-6. O Context7 está declarado em `mcp.json` como servidor remoto OAuth, no endpoint `https://mcp.context7.com/mcp/oauth`. Se o cliente solicitar autenticação, oriente a concluir o login do Context7 pelo cliente. Não solicite credenciais no chat.
-7. Confira a presença das ferramentas Context7 e Scripta na nova sessão. Todos os agentes devem herdar o MCP do Scripta e consultar docs_briefing para renew-it em seu próprio contexto antes de trabalho dependente do SDD. Perfis não carregam credenciais próprias nem alteram permissões. A conexão principal precisa estar configurada, habilitada e acessível. Para configurar o acesso ao Scripta/renew-it, use o guia da skill development-workflow.
-
-Os perfis incluem identidade, função, modelo, raciocínio e as regras já definidas pelo usuário: SDD no Scripta, repasse ao time, apoio do advisor e padrões de desenvolvimento/revisão. Novas regras serão acrescentadas conforme orientação do usuário. Não introduza novos fluxos de aprovação ou inicie o time apenas para testar a instalação.
+Caveman é o padrão de comunicação; respeite normal mode/stop caveman e preserve documentos e código completos. As políticas de desenvolvimento e os sete subtítulos do SDD ficam nas skills development-workflow, sdd-planning, sdd-development e sdd-qa.

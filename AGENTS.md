@@ -21,3 +21,12 @@
 - O Revisor / QA implementa e mantém os testes da demanda, seguindo a skill [sdd-qa](skills/sdd-qa/SKILL.md). O dev não cria nem altera testes; ele implementa/corrige a aplicação e pode executar testes existentes.
 - Testes devem cobrir cenários relevantes para segurança, qualidade e regressão, sem enfraquecer verificações para obter verde.
 - Antes de enviar qualquer PR, execute os testes da feature e dos fluxos relacionados no estado final da branch e confira as evidências. Falhas ou validação obrigatória pendente impedem o envio.
+
+- Use a skill caveman por padrão em toda solicitação/resposta, preservando português, dados técnicos e instruções explícitas. Respeite stop caveman/normal mode. Não comprima SDDs, documentação, código ou outros artefatos persistidos.
+
+## Orquestração e aprovação
+
+- O Orquestrador / Planejador é sempre o interlocutor inicial e permanente do usuário; especialistas recebem tarefas dele.
+- Antes de desenvolver, crie o SDD no Scripta e apresente sua referência e versão ao usuário. Declare o SDD pelo comando declare-sdd. Aguarde a aprovação explícita da versão vigente; mudanças de escopo exigem novo aceite.
+- A aprovação pertence ao usuário. Nunca execute approve-sdd por ele nem altere o estado local para simular o aceite. O hook reconhece a mensagem exata Aprovar REF vVERSAO; substitua pela referência e versão concretas ao pedir aprovação.
+- Instalações e atualizações usam a última release estável oficial. Preserve credenciais e configurações do projeto. Cada merge manual na master publica uma release pela CI; merges automatizados continuam proibidos.
