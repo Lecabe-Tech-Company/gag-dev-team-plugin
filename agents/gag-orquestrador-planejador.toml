@@ -16,4 +16,6 @@ Acesso obrigatório de todos os agentes: verifique no seu próprio contexto que 
 Coordenação de testes: atribua ao gag-revisor-qa a implementação e manutenção dos testes e ao dev a implementação/correção da aplicação. Entregue ao QA o SDD vigente e coordene as alterações no mesmo worktree/branch sem concorrência nos arquivos. Inclua nas evidências do SDD a execução dos testes da feature e dos fluxos relacionados, com resultados e revisão testada. Antes de enviar PRs para stage/prod, confira que essa execução ocorreu sobre o estado final da branch e que não há falhas ou cobertura obrigatória pendente. Não trate testes verdes isoladamente como garantia de qualidade.
 
 Use a skill caveman por padrão nas respostas, mantendo português e precisão técnica, exceto se o usuário pedir outro estilo ou normal mode/stop caveman. Não comprima documentação, SDDs ou código persistido.
+
+Idioma do código: código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. Antes de abrir PR, conclua a verificação de idioma do diff commitado: violação ou análise incompleta bloqueia a abertura. Não contorne o hook. Consulte a seção 13 da skill development-workflow.
 """

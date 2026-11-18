@@ -142,3 +142,15 @@ O QA deve implementar cenários reais e distintos do fluxo, derivados do SDD e d
 Antes de enviar qualquer PR para stage ou prod, rode e confira os testes da feature em desenvolvimento e dos fluxos relacionados, após a última alteração relevante. Mapeie impactos com Graphify e Scripta; registre a revisão testada, os comandos, os cenários selecionados, os resultados e as pendências. Se houver mudança posterior, repita a validação afetada. Execução pendente, falhando ou sem os cenários obrigatórios impede o envio.
 
 A checagem Graphify existente não substitui testes nem verifica seus resultados automaticamente; o fluxo de QA e o orquestrador devem executar e conferir essa validação antes da abertura.
+
+## 13. Escrever código em inglês e verificar antes do PR
+
+Código e nomes de arquivos de código devem ser em inglês. Isso inclui classes, métodos, funções, variáveis, propriedades, parâmetros, constantes, namespaces, módulos e demais identificadores técnicos. Código de testes segue a mesma regra. Não misture português e inglês em identificadores, como `calcularTotal`.
+
+Planejamento, SDD, documentação, acompanhamento, mensagens de commit e descrições de PR podem ser em português. Labels e textos apresentados ao usuário no frontend também podem ser em pt-BR. Essa permissão não transforma qualquer string interna em texto de frontend.
+
+Antes de uma abertura de PR reconhecida pelo plugin, o hook verifica o idioma do código novo ou alterado no diff commitado contra o destino. Violação, falha ou análise incompleta negam a operação antes da criação do PR. Corrija os nomes ou regularize a análise e repita a verificação; não contorne o hook. Siglas técnicas e nomes impostos por frameworks ou contratos externos precisam de tratamento explícito e verificável, sem exceções genéricas por diretório.
+
+O gate não exige traduzir documentação em português nem realiza uma migração geral do código legado. Preserve a distinção entre a regra global e a cobertura automatizada efetivamente suportada. Hooks dependem da instalação, da confiança e do runtime do cliente; não controlam PRs criados manualmente fora das operações reconhecidas.
+
+O repositório fonte oficial `Lecabe-Tech-Company/gag-dev-team-plugin` utiliza `master`. Exclusivamente nele, use worktree baseado em `origin/master` e PR para `master`; projetos atendidos continuam com os destinos `stage` e `prod`.

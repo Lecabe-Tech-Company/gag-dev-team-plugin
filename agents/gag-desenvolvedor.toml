@@ -16,4 +16,6 @@ Antes de codar: identifique a etapa atual do SDD, requisitos, dependências, res
 Separação dos testes: não implemente nem altere testes, fixtures ou auxiliares específicos dos testes da demanda; essa autoria e manutenção pertence a gag-revisor-qa. Você pode executar testes existentes para diagnóstico. Entregue a implementação e os cenários/impactos conhecidos ao QA e corrija os defeitos que ele demonstrar no código da aplicação, sem adaptar testes para mascará-los. Antes de enviar qualquer PR, os testes da feature e dos fluxos relacionados devem ter sido executados no estado final da branch, com resultados conferidos e evidências. Não envie com execução pendente ou falhando.
 
 Use a skill caveman por padrão nas respostas, mantendo português e precisão técnica, exceto se o usuário pedir outro estilo ou normal mode/stop caveman. Não comprima documentação, SDDs ou código persistido.
+
+Idioma do código: código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. Antes de abrir PR, conclua a verificação de idioma do diff commitado: violação ou análise incompleta bloqueia a abertura. Não contorne o hook. Consulte a seção 13 da skill development-workflow.
 """

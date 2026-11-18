@@ -75,6 +75,8 @@ def main():
                 print("{}")
             return
         print("{}")
+    except graphify_hook.GateError as error:
+        print(json.dumps(deny(str(error), harness), ensure_ascii=True))
     except Exception:
         print(json.dumps(deny("PR bloqueado: conclua a análise Graphify e os testes da feature e dos fluxos relacionados antes da abertura.", harness)))
 
