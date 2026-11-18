@@ -46,6 +46,11 @@ TECHNICAL_WORDS = {
     "fsdecode", "graphify", "hashlib", "hexdigest", "isalpha", "isascii", "livewire",
     "isspace", "laravel", "lstrip", "multiline", "readline", "returncode", "sha256", "shutil",
     "splitlines", "startswith", "spatie", "toml", "tsx", "argv",
+    # Exact PHP and export-format contracts found in supported application code.
+    "auth", "authenticatable", "basename", "bom", "canonicalizing", "compatibilities",
+    "csv", "downloader", "downloaders", "enum", "enums", "eol", "fclose", "fflush",
+    "fopen", "fpassthru", "fwrite", "isset", "matchable", "md5", "pdo", "stringable",
+    "stringify", "strlen", "strtolower", "symfony", "tempnam", "throwable", "xlsx",
 }
 TOKEN_PATTERN = re.compile(r"[^\W\d]\w*", re.UNICODE)
 IDENTIFIER_SPLIT_PATTERN = re.compile(r"[^A-Za-z]+")
@@ -189,6 +194,8 @@ def _parse_tree_sitter_request():
             tree = Parser(grammar).parse(source)
             if tree.root_node.has_error:
                 raise ValueError("parse error")
+            workbook_row_helpers = _workbook_row_helper_names(tree.root_node)
+            workbook_row_variables = _workbook_row_variables(tree.root_node, workbook_row_helpers)
             identifiers = []
             stack = [tree.root_node]
             while stack:
@@ -209,7 +216,7 @@ def _parse_tree_sitter_request():
                             identifiers.append({"line": key_node.start_point.row + 1, "name": key_value})
                 if node.type == "subscript_expression" and node.named_child_count > 1:
                     key_node = node.named_children[-1]
-                    if key_node.type == "string":
+                    if key_node.type == "string" and not _is_workbook_row_access(node, workbook_row_variables):
                         key_value = key_node.text.decode("utf-8").strip("'\"` ")
                         if key_value:
                             identifiers.append({"line": key_node.start_point.row + 1, "name": key_value})
@@ -229,7 +236,8 @@ def _parse_tree_sitter_request():
                     key_node = node.named_children[0] if node.named_children else None
                     if key_node and key_node.type not in {"encapsed_string", "string"}:
                         key_node = None
-                    if key_node:
+                    if key_node and not _is_workbook_row_expectation(node, workbook_row_variables) \
+                        and not _is_workbook_sheet_name_key(node):
                         key_value = ("".join(child.text.decode("utf-8") for child in key_node.named_children
                                               if child.type == "string_content") if key_node.type == "encapsed_string"
                                      else key_node.text.decode("utf-8").strip("'\""))
@@ -241,6 +249,313 @@ def _parse_tree_sitter_request():
         return 2
     print(json.dumps(result))
     return 0
+
+
+def _tree_descendants(node):
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        yield current
+        stack.extend(reversed(current.named_children))
+
+
+def _call_name(node):
+    if node.type not in {"function_call_expression", "scoped_call_expression"} or not node.named_children:
+        return None
+    name_node = node.named_children[0]
+    return name_node.text.decode("utf-8") if name_node.type in {"name", "variable_name"} else None
+
+
+def _call_arguments(node):
+    return next((child for child in node.named_children if child.type == "arguments"), None)
+
+
+def _argument_values(node):
+    arguments = _call_arguments(node)
+    return [argument.named_children[0] for argument in arguments.named_children if argument.named_children] if arguments else []
+
+
+def _variable_name(node):
+    return node.text.decode("utf-8") if node.type == "variable_name" else None
+
+
+def _assigned_variable(node):
+    if node.type != "assignment_expression" or len(node.named_children) < 2:
+        return None
+    return _variable_name(node.named_children[0])
+
+
+def _enclosing_scope(node):
+    current = node.parent
+    while current:
+        if current.type in {"function_definition", "method_declaration", "anonymous_function", "arrow_function"}:
+            return current.start_byte
+        current = current.parent
+    return 0
+
+
+def _has_namespace_ancestor(node):
+    current = node.parent
+    while current:
+        if current.type == "namespace_definition":
+            return True
+        current = current.parent
+    return False
+
+
+def _contains_namespace_definition(root):
+    return any(node.type == "namespace_definition" for node in _tree_descendants(root))
+
+
+def _has_workbook_rows_source(function_node):
+    """Recognize only helpers that turn the visible first worksheet row into map keys."""
+    rows_variable = None
+    headers_variable = None
+
+    for node in _tree_descendants(function_node):
+        if node.type != "assignment_expression" or len(node.named_children) < 2:
+            continue
+
+        left, right = node.named_children[:2]
+        left_name = _variable_name(left)
+        if right.type == "member_call_expression":
+            method_names = [child.text.decode("utf-8") for child in right.named_children if child.type == "name"]
+            if "toArray" in method_names and any(
+                descendant.type == "member_call_expression"
+                and "getSheetByName" in [child.text.decode("utf-8") for child in descendant.named_children if child.type == "name"]
+                for descendant in _tree_descendants(right)
+            ):
+                rows_variable = left_name
+
+        if _call_name(right) == "array_shift":
+            values = _argument_values(right)
+            if left_name and len(values) == 1 and _variable_name(values[0]) == rows_variable:
+                headers_variable = left_name
+
+    if rows_variable is None or headers_variable is None:
+        return False
+
+    for node in _tree_descendants(function_node):
+        if node.type != "return_statement" or not node.named_children:
+            continue
+        returned = node.named_children[0]
+        if _call_name(returned) != "array_map":
+            continue
+        arguments = _argument_values(returned)
+        if len(arguments) != 2 or _variable_name(arguments[1]) != rows_variable:
+            continue
+        mapper = arguments[0]
+        for call in _tree_descendants(mapper):
+            if _call_name(call) != "array_combine":
+                continue
+            combine_arguments = _argument_values(call)
+            if len(combine_arguments) == 2 and _variable_name(combine_arguments[0]) == headers_variable:
+                return True
+
+    return False
+
+
+def _workbook_row_helper_names(root):
+    if _contains_namespace_definition(root):
+        return set()
+
+    declarations = {}
+    for node in _tree_descendants(root):
+        if node.type != "function_definition" or not node.named_children:
+            continue
+        if _has_namespace_ancestor(node):
+            continue
+        name_node = next((child for child in node.named_children if child.type == "name"), None)
+        body = next((child for child in node.named_children if child.type == "compound_statement"), None)
+        if name_node:
+            name = name_node.text.decode("utf-8")
+            declarations.setdefault(name, []).append(bool(body and _has_workbook_rows_source(body)))
+
+    return {
+        name for name, declarations_for_name in declarations.items()
+        if len(declarations_for_name) == 1 and declarations_for_name[0]
+    }
+
+
+def _is_exporter_row_mapping(node):
+    if _call_name(node) != "array_combine":
+        return None
+    arguments = _argument_values(node)
+    if len(arguments) != 2 or _call_name(arguments[0]) != "array_values":
+        return None
+    column_arguments = _argument_values(arguments[0])
+    exporter_call = arguments[1]
+    if len(column_arguments) != 1 or _variable_name(column_arguments[0]) is None \
+        or exporter_call.type != "function_call_expression" or not exporter_call.named_children \
+        or exporter_call.named_children[0].type != "variable_name":
+        return None
+    return _variable_name(column_arguments[0]), _variable_name(exporter_call.named_children[0])
+
+
+def _export_columns_assignment(node):
+    if node.type != "assignment_expression" or len(node.named_children) < 2:
+        return None
+    variable = _variable_name(node.named_children[0])
+    value = node.named_children[1]
+    if not variable or value.type != "member_call_expression":
+        return None
+    calls = [
+        child.text.decode("utf-8")
+        for descendant in _tree_descendants(value)
+        for child in descendant.named_children
+        if child.type == "name"
+        and child.text.decode("utf-8") in {"getColumns", "mapWithKeys", "getName", "getLabel"}
+    ]
+    required_calls = {"getColumns", "mapWithKeys", "getName", "getLabel"}
+    return variable if required_calls.issubset(calls) else None
+
+
+def _exporter_assignment(node):
+    if node.type != "assignment_expression" or len(node.named_children) < 2:
+        return None
+    variable = _variable_name(node.named_children[0])
+    value = node.named_children[1]
+    if not variable or value.type != "object_creation_expression" or not value.named_children:
+        return None
+    class_name = value.named_children[0]
+    if class_name.type != "name" or not class_name.text.decode("utf-8").endswith("Exporter"):
+        return None
+    columns = {
+        item.text.decode("utf-8")
+        for argument in _argument_values(value)
+        for item in _tree_descendants(argument)
+        if item.type == "variable_name"
+    }
+    return variable, columns
+
+
+def _workbook_row_variables(root, helper_names):
+    variables = set()
+    columns_by_scope = set()
+    exporters_by_scope = {}
+    csv_readers_with_headers = set()
+    nodes = list(_tree_descendants(root))
+    has_namespaces = any(node.type == "namespace_definition" for node in nodes)
+    for node in nodes:
+        scope = _enclosing_scope(node)
+        if node.type == "member_call_expression":
+            method_name = next((child.text.decode("utf-8") for child in node.named_children if child.type == "name"), None)
+            receiver = node.named_children[0] if node.named_children else None
+            if method_name == "setHeaderOffset" and receiver and _variable_name(receiver):
+                csv_readers_with_headers.add((scope, _variable_name(receiver)))
+        columns_variable = _export_columns_assignment(node)
+        if columns_variable:
+            columns_by_scope.add((scope, columns_variable))
+        exporter = _exporter_assignment(node)
+        if exporter:
+            exporters_by_scope[(scope, exporter[0])] = exporter[1]
+
+    for node in nodes:
+        variable = _assigned_variable(node)
+        if not variable or len(node.named_children) < 2:
+            continue
+        value = node.named_children[1]
+        scope = _enclosing_scope(node)
+        source_is_output = _is_output_row_source(
+            value,
+            scope,
+            helper_names,
+            not has_namespaces and not _has_namespace_ancestor(node),
+            variables,
+            csv_readers_with_headers,
+            columns_by_scope,
+            exporters_by_scope,
+        )
+        if source_is_output:
+            variables.add((scope, variable))
+        else:
+            variables.discard((scope, variable))
+    return variables
+
+
+def _is_output_row_source(value, scope, helper_names, allow_global_helper, variables, csv_readers, columns, exporters):
+    if allow_global_helper and _call_name(value) in helper_names:
+        return True
+
+    if value.type == "subscript_expression" and value.named_children:
+        base = value.named_children[0]
+        if (allow_global_helper and _call_name(base) in helper_names) or _scope_has_row_variable(base, variables):
+            return True
+
+    if _call_name(value) == "iterator_to_array":
+        arguments = _argument_values(value)
+        records = arguments[0] if arguments else None
+        receiver = records.named_children[0] if records and records.type == "member_call_expression" and records.named_children else None
+        method_name = next((child.text.decode("utf-8") for child in records.named_children if child.type == "name"), None) if records else None
+        if method_name == "getRecords" and receiver and (scope, _variable_name(receiver)) in csv_readers:
+            return True
+
+    mapping = next((details for details in _tree_descendants(value) if _is_exporter_row_mapping(details)), None)
+    if mapping is None:
+        return False
+    column_name, exporter_name = _is_exporter_row_mapping(mapping)
+
+    return (scope, column_name) in columns \
+        and column_name in exporters.get((scope, exporter_name), set())
+
+
+def _scope_has_row_variable(node, row_variables):
+    scope = _enclosing_scope(node)
+    current = node
+    while current.type == "subscript_expression" and current.named_children:
+        current = current.named_children[0]
+    return current.type == "variable_name" and (scope, current.text.decode("utf-8")) in row_variables
+
+
+def _is_workbook_row_access(node, row_variables):
+    return _scope_has_row_variable(node.named_children[0], row_variables)
+
+
+def _is_workbook_row_expectation(node, row_variables):
+    parent = node.parent
+    while parent:
+        if parent.type == "member_call_expression":
+            names = [child.text.decode("utf-8") for child in parent.named_children if child.type == "name"]
+            if "toMatchArray" in names and parent.named_children:
+                receiver = parent.named_children[0]
+                if _call_name(receiver) == "expect":
+                    arguments = _argument_values(receiver)
+                    return len(arguments) == 1 and _scope_has_row_variable(arguments[0], row_variables)
+        parent = parent.parent
+    return False
+
+
+def _is_workbook_sheet_name_key(node):
+    current = node.parent
+    while current and current.type != "foreach_statement":
+        current = current.parent
+
+    if current is None or len(current.named_children) < 3:
+        return False
+
+    iterable, binding, body = current.named_children[:3]
+    if binding.type != "pair" or not binding.named_children:
+        return False
+
+    sheet_variable = _variable_name(binding.named_children[0])
+    if not sheet_variable:
+        return False
+
+    array = node.parent
+    while array and array.type != "array_creation_expression":
+        array = array.parent
+    if array != iterable:
+        return False
+
+    for call in _tree_descendants(body):
+        if call.type != "member_call_expression":
+            continue
+        method = next((child.text.decode("utf-8") for child in call.named_children if child.type == "name"), None)
+        arguments = _argument_values(call)
+        if method == "getSheetByName" and arguments and _variable_name(arguments[0]) == sheet_variable:
+            return True
+
+    return False
 
 
 def _python_identifiers(content, path):

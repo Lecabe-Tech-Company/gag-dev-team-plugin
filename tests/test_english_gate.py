@@ -361,6 +361,207 @@ class EnglishGateTests(unittest.TestCase):
         self.assertEqual(self.graphify_calls, 0)
 
 
+class ExportLanguageContextTests(unittest.TestCase):
+    SHEET_HELPER = """<?php
+function exportRows($workbook, string $sheet): array {
+    $rows = $workbook->getSheetByName($sheet)->toArray();
+    $headers = array_shift($rows);
+    return array_map(fn (array $row): array => array_combine($headers, $row), $rows);
+}
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        source = graph_tests.ROOT / "hooks/scripts/english_code.py"
+        spec = importlib.util.spec_from_file_location("qa_export_language", source)
+        cls.language = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.language)
+
+    def check_source(self, source, path="tests/export_test.php"):
+        return self.language.validate_changes([{
+            "path": path,
+            "content": source,
+            "added_lines": set(range(1, len(source.splitlines()) + 1)),
+            "path_changed": True,
+        }])
+
+    def assert_accepted(self, source, path="tests/export_test.php"):
+        diagnostics = self.check_source(source, path)
+        self.assertEqual(diagnostics, [], "\n".join(diagnostics))
+
+    def assert_rejected(self, source, token="nome"):
+        diagnostics = self.check_source(source)
+        self.assertTrue(diagnostics)
+        self.assertIn(token, "\n".join(diagnostics).casefold())
+
+    def test_standard_php_and_filament_contracts_are_accepted(self):
+        self.assert_accepted("""<?php
+use Filament\\Actions\\Exports\\Enums\\ExportFormat;
+use PDOException;
+use Throwable;
+class CsvDownloader {
+    public function download($stream): bool {
+        if (isset($stream)) {
+            fpassthru($stream);
+            fclose($stream);
+        }
+        return auth()->check();
+    }
+    public function formats(): array {
+        return [ExportFormat::Csv, ExportFormat::Xlsx];
+    }
+}
+""", path="exports/csv_downloader.php")
+
+    def test_sheet_output_headers_are_presentation_in_row_assertions(self):
+        self.assert_accepted(self.SHEET_HELPER + """
+$fields = exportRows($workbook, 'Campos');
+expect($fields[0])->toMatchArray(['Nome' => 'RAM', 'Descrição' => 'Detalhe']);
+expect($fields[0]['Descrição'])->toBe('Detalhe');
+$row = exportRows($workbook, 'Opções')[0];
+expect($row['Nome'])->toBe('RAM');
+""")
+
+    def test_an_unsupported_collection_wrapper_remains_blocked(self):
+        self.assert_rejected(self.SHEET_HELPER + """
+$row = collect(exportRows($workbook, 'Opções'))->firstWhere('ID', $id);
+expect($row['Nome'])->toBe('RAM');
+""")
+
+    def test_workbook_sheet_names_are_presentation_when_used_to_inspect_sheets(self):
+        self.assert_accepted("""<?php
+foreach (['Campos' => ['Nome', 'RAM'], 'Opções' => ['Rótulo', 'Value']] as $sheet => [$header, $literal]) {
+    $worksheet = $workbook->getSheetByName($sheet);
+    $column = array_search($header, $worksheet->toArray()[0], true);
+    expect($worksheet->getCell([$column + 1, 2])->getValue())->toBe($literal);
+}
+""")
+
+    def test_framework_export_column_labels_can_be_combined_with_exported_values(self):
+        self.assert_accepted("""<?php
+use Filament\\Actions\\Exports\\Exporter;
+use Filament\\Actions\\Exports\\ExportColumn;
+use Filament\\Actions\\Exports\\Models\\Export;
+class FieldExporter extends Exporter {
+    public static function getColumns(): array {
+        return [ExportColumn::make('name')->label('Nome')];
+    }
+}
+$columns = collect(FieldExporter::getColumns())
+    ->mapWithKeys(fn ($column): array => [$column->getName() => $column->getLabel()])->all();
+$exporter = new FieldExporter(new Export(), $columns, []);
+$row = array_combine(array_values($columns), $exporter($field));
+expect($row['Nome'])->toBe('RAM');
+""")
+
+    def test_presentation_context_does_not_exempt_portuguese_code_identifiers(self):
+        for fragment, token in (
+            ("$nome = 1;", "nome"),
+            ("function calcularTotal($count) { return $count; }", "calcular"),
+            ("$csvQuantidade = 1;", "quantidade"),
+        ):
+            with self.subTest(fragment=fragment):
+                self.assert_rejected(self.SHEET_HELPER + """
+$fields = exportRows($workbook, 'Campos');
+expect($fields[0]['Nome'])->toBe('RAM');
+""" + fragment, token)
+
+    def test_technical_keys_remain_checked_beside_identical_display_labels(self):
+        for fragment in (
+            "$payload = ['Nome' => 1];",
+            "$value = $payload['nome'];",
+            "$field = TextInput::make('nome')->label('Nome');",
+            "expect($payload)->toMatchArray(['Nome' => 'RAM']);",
+            "$value = $payload[$fields[0]['ID']]['nome'];",
+            "expect($payload[$fields[0]['ID']])->toMatchArray(['Nome' => 'RAM']);",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assert_rejected(self.SHEET_HELPER + """
+$field = TextInput::make('name')->label('Nome');
+$fields = exportRows($workbook, 'Campos');
+""" + fragment)
+
+    def test_generic_array_combine_helpers_do_not_make_technical_payload_keys_presentation(self):
+        self.assert_rejected("""<?php
+function mapRows($rows): array {
+    $headers = array_shift($rows);
+    return array_map(fn (array $row): array => array_combine($headers, $row), $rows);
+}
+$fields = mapRows($payload);
+expect($fields[0]['Nome'])->toBe('RAM');
+""")
+
+    def test_an_arbitrary_callable_named_exporter_cannot_exempt_technical_keys(self):
+        for setup in (
+            "$exporter = fn ($field): array => [$field];",
+            "class FakeExporter { public function __invoke($field): array { return [$field]; } }\n"
+            "$exporter = new FakeExporter();",
+        ):
+            with self.subTest(setup=setup):
+                self.assert_rejected("<?php\n" + setup + """
+$headers = ['Nome'];
+$row = array_combine($headers, $exporter($field));
+expect($row['Nome'])->toBe('RAM');
+""")
+
+    def test_reassignment_revokes_presentation_map_provenance(self):
+        self.assert_rejected(self.SHEET_HELPER + """
+$fields = exportRows($workbook, 'Campos');
+$fields = $payload;
+expect($fields['Nome'])->toBe('RAM');
+""")
+
+    def test_presentation_map_provenance_does_not_leak_between_function_scopes(self):
+        self.assert_rejected(self.SHEET_HELPER + """
+function inspectOutput($workbook): array {
+    $row = exportRows($workbook, 'Campos')[0];
+    return [$row['Nome']];
+}
+function processData($payload): array {
+    $row = $payload;
+    return [$row['Nome']];
+}
+""")
+
+    def test_helper_provenance_does_not_cross_namespaces(self):
+        sources = (
+            ("bracketed", """<?php
+namespace Alpha {
+    function rows($workbook, string $sheet): array {
+        $values = $workbook->getSheetByName($sheet)->toArray();
+        $headers = array_shift($values);
+        return array_map(fn (array $row): array => array_combine($headers, $row), $values);
+    }
+}
+namespace Beta {
+    LOCAL_HELPER
+    $output = rows($payload);
+    expect($output['Nome'])->toBe('RAM');
+}
+"""),
+            ("unbracketed", """<?php
+namespace Alpha;
+function rows($workbook, string $sheet): array {
+    $values = $workbook->getSheetByName($sheet)->toArray();
+    $headers = array_shift($values);
+    return array_map(fn (array $row): array => array_combine($headers, $row), $values);
+}
+namespace Beta;
+LOCAL_HELPER
+$output = rows($payload);
+expect($output['Nome'])->toBe('RAM');
+"""),
+        )
+        for style, source in sources:
+            for local_helper in ("function rows($payload): array { return $payload; }", ""):
+                with self.subTest(style=style, local_helper=bool(local_helper)):
+                    self.assert_rejected(source.replace("LOCAL_HELPER", local_helper))
+
+    def test_a_presentation_map_does_not_hide_a_parser_failure(self):
+        with self.assertRaises(self.language.LanguageCheckError):
+            self.check_source(self.SHEET_HELPER + "\nfunction calculateTotal( { return 1; }\n")
+
+
 class NativeLanguageGateTests(unittest.TestCase):
     setUp = EnglishGateTests.setUp
     git = EnglishGateTests.git
