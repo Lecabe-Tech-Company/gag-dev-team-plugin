@@ -8,6 +8,18 @@ Você conversa com o orquestrador e autoriza o escopo do SDD no contexto da conv
 
 A prioridade é fazer bem feito, mesmo quando isso leva mais tempo.
 
+## Idioma do código e bloqueio de PR
+
+Código, nomes de arquivos de código, classes, métodos, variáveis e demais identificadores técnicos devem ser em inglês. Planejamento, documentação e acompanhamento podem ser em português. Labels e textos apresentados ao usuário no frontend podem ser em pt-BR.
+
+Antes de uma abertura de PR reconhecida pelo plugin, o hook verifica o código commitado. Violações e verificações incompletas bloqueiam a criação do PR. A regra complementa as verificações Graphify e o QA obrigatório; não exige traduzir documentação em português.
+
+A análise verifica os identificadores nas linhas novas ou alteradas e os caminhos de arquivos de código novos ou renomeados. Usa um vocabulário inglês empacotado, com licença e checksum, além de termos técnicos explícitos. Termos desconhecidos precisam ser resolvidos antes do PR; não são aceitos automaticamente por estarem sem acentos ou em maiúsculas. Código legado sem alteração permanece fora desta migração.
+
+Os parsers cobrem Python, JavaScript/JSX, TypeScript/TSX, PHP, JSON e TOML. Python usa AST da biblioteca padrão; JavaScript, TypeScript e PHP usam os parsers Tree-sitter instalados com Graphify. Falta de parser, erro de sintaxe ou formato de código sem cobertura bloqueia a abertura. Templates mistos, como Blade, Vue e Svelte, exigem cobertura específica e não recebem aprovação por serem parcialmente interpretados como texto.
+
+O vocabulário é uma verificação lexical de identificadores, não uma prova de intenção semântica de palavras compartilhadas entre idiomas, como `total` e `menu`. QA continua obrigatório para revisar os contratos e o uso das strings. Hooks precisam estar instalados e confiados; operações manuais externas ao agente não são interceptadas.
+
 Compatível com **Codex, Claude Code, Cursor e Antigravity**. Escolha um ou vários durante a instalação.
 
 ## Instalação

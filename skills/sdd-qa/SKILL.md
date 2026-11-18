@@ -65,3 +65,7 @@ Confira se os testes esperados foram de fato descobertos e executados. Zero test
 Registre os comandos executados, o ambiente/versões relevantes, a revisão testada, a seleção de cenários da feature e relacionados, os resultados e as pendências. Consolide as evidências no Scripta e na descrição dos PRs conforme o fluxo do time; não versione relatórios gerados.
 
 Revise também os critérios arquiteturais, de versões, Filament e CSS global já definidos. Testes verdes não substituem esses critérios nem provam ausência absoluta de defeitos. Informe o que foi efetivamente verificado e os limites da cobertura; nenhuma revisão autoriza merge automatizado.
+
+## Idioma do código
+
+Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. A verificação de idioma do diff commitado é obrigatória antes de abrir PR: violação ou análise incompleta bloqueia a abertura. Consulte a seção 13 da skill development-workflow. Não exija tradução de documentos por esta regra.

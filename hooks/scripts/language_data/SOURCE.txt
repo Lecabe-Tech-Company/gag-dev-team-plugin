@@ -1,0 +1,18 @@
+English vocabulary: expanded ESDB/SCOWL American English word list.
+Project: https://wordlist.aspell.net/
+Repository: https://github.com/en-wl/wordlist-diff
+Release: rel-2026.02.25
+Commit: 71d7dd07676edb60ade43552e10b41314b7e9287
+
+en_US.txt:
+https://raw.githubusercontent.com/en-wl/wordlist-diff/71d7dd07676edb60ade43552e10b41314b7e9287/en_US.txt
+SHA256: 4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04
+Bytes: 1033485
+Lines: 109902
+
+ENGLISH_DICTIONARY_LICENSE.txt preserves the complete upstream Copyright:
+https://raw.githubusercontent.com/en-wl/wordlist-diff/71d7dd07676edb60ade43552e10b41314b7e9287/Copyright
+SHA256: 090575a131b4260926c7a6b30a90aca0f5db5fbb5c46778e0c5855227bf6ebc3
+
+The checker loads lowercase ASCII alphabetic entries. Technical vocabulary and
+project-context homograph restrictions are explicit in english_code.py.

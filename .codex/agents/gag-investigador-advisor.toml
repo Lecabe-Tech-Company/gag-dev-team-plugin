@@ -14,4 +14,6 @@ Acesso obrigatório de todos os agentes: verifique no seu próprio contexto que 
 Ao apoiar o dev, parta da etapa atual e dos critérios do SDD. Quando solicitado ou necessário, ajude a elaborar ou revisar pseudocódigo antes da implementação. Compare a alternativa mais simples e os recursos existentes antes de sugerir novas abstrações. Avalie Big O, volume, consultas, I/O e memória quando relevantes; diferencie análise de complexidade, hipótese de gargalo e ganho comprovado. Oriente nomes claros, fluxo com pouco aninhamento, early returns adequados e comentários que esclareçam comportamentos não óbvios.
 
 Use a skill caveman por padrão nas respostas, mantendo português e precisão técnica, exceto se o usuário pedir outro estilo ou normal mode/stop caveman. Não comprima documentação, SDDs ou código persistido.
+
+Idioma do código: código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. Antes de abrir PR, conclua a verificação de idioma do diff commitado: violação ou análise incompleta bloqueia a abertura. Não contorne o hook. Consulte a seção 13 da skill development-workflow.
 """

@@ -15,11 +15,29 @@ ROOT = Path(__file__).resolve().parents[2]
 CODE_EXTENSIONS = {
     ".py", ".php", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte",
     ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".rb", ".c", ".h", ".cpp", ".hpp",
-    ".cs", ".swift", ".lua", ".sh", ".bash", ".ps1", ".psm1", ".sql", ".tf",
-    ".html", ".css", ".scss", ".sass", ".less", ".json", ".yaml", ".yml", ".toml",
+    ".cs", ".swift", ".lua", ".sh", ".bash", ".ps1", ".psm1", ".sql", ".tf", ".dart",
+    ".html", ".css", ".scss", ".sass", ".less", ".json", ".yaml", ".yml", ".toml", ".ex", ".exs",
 }
+NON_CODE_EXTENSIONS = {
+    ".md", ".markdown", ".rst", ".txt", ".adoc", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".ico", ".icns", ".mp3", ".mp4", ".wav", ".ogg", ".zip", ".gz", ".tar", ".7z", ".woff",
+    ".woff2", ".ttf", ".otf", ".dic", ".lock", ".sum",
+}
+NON_CODE_NAMES = {"LICENSE", "NOTICE", "COPYING", "README", "CONTRIBUTING", ".gitattributes", ".gitignore", ".gitkeep"}
 class GateError(Exception):
     pass
+
+
+def added_line_numbers(root, base_commit, head_commit, relative):
+    """Return line numbers added by the committed diff for one path."""
+    diff = run(["git", "diff", "--unified=0", "--no-renames", "--no-ext-diff", "--no-textconv",
+                base_commit + "..." + head_commit, "--", relative], cwd=root)
+    added = set()
+    for match in re.finditer(rb"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
+        start = int(match.group(1))
+        count = int(match.group(2) or b"1")
+        added.update(range(start, start + count))
+    return added
 
 
 def run(args, cwd=None, timeout=30, env=None):
@@ -98,15 +116,18 @@ def analyze_pr(request, binary):
         raise GateError("Não foi possível identificar o worktree do PR.")
     root = Path(run(["git", "rev-parse", "--show-toplevel"], cwd=cwd).decode().strip())
     base = request.get("base")
-    if base not in ("stage", "prod"):
+    if base not in ("stage", "prod", "master"):
         raise GateError("Informe explicitamente o destino stage ou prod na abertura do PR.")
     branch = run(["git", "branch", "--show-current"], cwd=root).decode().strip()
     head = request.get("head") or branch
-    if not branch or branch in ("stage", "prod") or head != branch:
+    if not branch or branch in ("stage", "prod", "master") or head != branch:
         raise GateError("O head do PR deve ser a branch da feature aberta neste worktree.")
     head_commit = run(["git", "rev-parse", "HEAD"], cwd=root).decode().strip()
     remote = run(["git", "remote", "get-url", "origin"], cwd=root).decode().strip()
     slug = repository_slug(remote)
+    plugin_master = slug == "lecabe-tech-company/gag-dev-team-plugin" and base == "master"
+    if base == "master" and not plugin_master:
+        raise GateError("Destino master só é permitido no repositório fonte oficial do plugin.")
     requested_repo = request.get("repo")
     if not slug or (requested_repo and requested_repo.lower().removeprefix("https://github.com/").rstrip("/") != slug):
         raise GateError("O repositório do PR não corresponde ao remoto origin deste worktree.")
@@ -115,6 +136,7 @@ def analyze_pr(request, binary):
     run(["git", "fetch", "origin", base], cwd=root, timeout=60)
     base_ref = "refs/remotes/origin/" + base
     base_commit = run(["git", "rev-parse", "--verify", base_ref], cwd=root).decode().strip()
+    merge_base = run(["git", "merge-base", base_commit, head_commit], cwd=root).decode().strip()
     published = run(["git", "ls-remote", "--heads", "origin", "refs/heads/" + branch], cwd=root, timeout=60).decode().split()
     if not published or published[0] != head_commit:
         raise GateError("Publique a branch da feature antes do PR; o head remoto deve coincidir com o commit local.")
@@ -123,6 +145,7 @@ def analyze_pr(request, binary):
     if not files:
         raise GateError("Nenhum arquivo alterado em relação ao destino; não há escopo para analisar.")
     code, removed, skipped = [], [], []
+    changed_code = []
     # Ler o commit, não arquivos de trabalho; impede seguir symlinks ou exportar segredos.
     tree = run(["git", "ls-tree", "-r", "-z", head_commit], cwd=root)
     modes = {}
@@ -134,6 +157,8 @@ def analyze_pr(request, binary):
         corpus = Path(temp) / "corpus"
         corpus.mkdir()
         extraction_output = Path(temp) / "result"
+        base_tree = run(["git", "ls-tree", "-r", "--name-only", "-z", merge_base], cwd=root)
+        base_paths = {os.fsdecode(path) for path in base_tree.split(b"\0") if path}
         for relative in files:
             path = Path(relative)
             if path.is_absolute() or ".." in path.parts:
@@ -141,20 +166,52 @@ def analyze_pr(request, binary):
             if relative not in modes:
                 removed.append(relative)
                 continue
-            sensitive = path.name.lower().startswith(".env") or any(
-                part.lower() in ("secrets", "credentials", ".git") for part in path.parts
-            )
-            if sensitive or path.suffix.lower() not in CODE_EXTENSIONS or modes[relative] not in (b"100644", b"100755"):
-                skipped.append(relative)
-                continue
+            if modes[relative] not in (b"100644", b"100755"):
+                raise GateError(f"Não foi possível verificar idioma do arquivo {relative}: tipo de arquivo não suportado.")
             contents = run(["git", "show", head_commit + ":" + relative], cwd=root)
-            if b"\0" in contents:
+            suffix = path.suffix.lower()
+            code_candidate = suffix in CODE_EXTENSIONS or modes[relative] == b"100755" or contents.startswith(b"#!")
+            if path.name.lower().startswith(".env") and not code_candidate:
                 skipped.append(relative)
                 continue
+            if not code_candidate and (suffix in NON_CODE_EXTENSIONS or path.name.upper() in NON_CODE_NAMES):
+                skipped.append(relative)
+                continue
+            if not code_candidate:
+                if b"\0" in contents:
+                    skipped.append(relative)
+                    continue
+                raise GateError(f"Não foi possível verificar idioma do arquivo {relative}: extensão sem analisador.")
+            if b"\0" in contents:
+                raise GateError(f"Não foi possível verificar idioma do arquivo {relative}: conteúdo binário.")
+            try:
+                source = contents.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise GateError(f"Não foi possível verificar idioma do arquivo {relative}: UTF-8 inválido.") from error
+            changed_code.append({
+                "path": relative,
+                "content": source,
+                "added_lines": added_line_numbers(root, merge_base, head_commit, relative),
+                "path_changed": relative not in base_paths,
+            })
             target = corpus / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(contents)
             code.append(relative)
+        sys.path.insert(0, str(ROOT / "hooks/scripts"))
+        from english_code import DICTIONARY_SHA256, LanguageCheckError, validate_changes
+        try:
+            violations = validate_changes(changed_code, graphify_binary=binary)
+        except LanguageCheckError as error:
+            raise GateError("Verificação de idioma inconclusiva: " + str(error)) from error
+        if violations:
+            raise GateError("Verificação de idioma reprovada:\n" + "\n".join(violations))
+        language_result = {
+            "policy": "english-code-v1",
+            "dictionary_sha256": DICTIONARY_SHA256,
+            "checked": [item["path"] for item in changed_code],
+            "result": "passed",
+        }
         output = root / "graphify-out" / "pr-check" / base
         output.mkdir(parents=True, exist_ok=True)
         if code:
@@ -188,6 +245,7 @@ def analyze_pr(request, binary):
             "head": head_commit,
             "base": base, "base_commit": base_commit,
             "analyzed": code, "removed": removed, "skipped": skipped,
+            "language": language_result,
             "graph": str(graph_file) if graph_file else None,
         }
         (output / "check.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -197,7 +255,7 @@ def analyze_pr(request, binary):
         raise GateError("A branch mudou durante a análise. Repita antes de abrir o PR.")
     if run(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=root).strip():
         raise GateError("graphify-out/ precisa estar ignorado pelo Git antes de abrir o PR.")
-    return f"Graphify pré-PR concluído: {len(code)} arquivo(s) de código, {len(removed)} remoção(ões), {len(skipped)} fora da indexação. Registro local: {output / 'check.json'}."
+    return f"Graphify e idioma inglês pré-PR concluídos: {len(code)} arquivo(s) de código, {len(removed)} remoção(ões), {len(skipped)} fora da indexação. Registro local: {output / 'check.json'}."
 
 
 def respond(event_name, message, deny=False):

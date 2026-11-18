@@ -1,5 +1,11 @@
 # Instruções do GAG Dev Team Plugin
 
+## Idioma do código
+
+Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. O hook de abertura de PR deve negar código fora da regra e verificações incompletas. Consulte a seção 13 de `skills/development-workflow/SKILL.md`.
+
+Este repositório fonte oficial usa `master`: crie worktree a partir de `origin/master` e PR para `master`. A exigência de `stage/prod` abaixo aplica-se aos projetos atendidos pelo plugin.
+
 ## Fontes de consulta
 
 - Para localizar código, símbolos, dependências e relações, use Graphify primeiro. Consulte o grafo e depois confirme os arquivos e linhas indicados. Se faltar grafo, gere-o localmente com `graphify extract . --code-only`.

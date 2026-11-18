@@ -15,3 +15,7 @@ description: Instalar e configurar o GAG Dev Team em Codex, Claude Code, Cursor 
 8. SessionStart e Stop verificam releases com os hooks habilitados. update permite atualização manual. Preserve alterações locais e a chave em caso de falha.
 
 Caveman é o padrão de comunicação; respeite normal mode/stop caveman e preserve documentos e código completos. As políticas de desenvolvimento e os sete subtítulos do SDD ficam nas skills development-workflow, sdd-planning, sdd-development e sdd-qa.
+
+## Idioma do código
+
+Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. A verificação de idioma do diff commitado é obrigatória antes de abrir PR: violação ou análise incompleta bloqueia a abertura. Consulte a seção 13 da skill development-workflow. Não exija tradução de documentos por esta regra.

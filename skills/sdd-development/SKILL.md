@@ -84,3 +84,7 @@ Siga o fluxo compartilhado de worktree, branch e PRs. Valide os critérios do SD
 O dev não cria nem altera testes, fixtures ou auxiliares específicos dos testes da demanda. A autoria e manutenção pertence ao Revisor / QA, conforme a skill sdd-qa. O dev pode executar testes existentes para diagnóstico, informar cenários e dependências impactados e corrigir os defeitos no código da aplicação demonstrados pelo QA, preservando a separação das responsabilidades.
 
 Coordene o repasse no mesmo worktree/branch para evitar alterações concorrentes. Antes de enviar PRs, confira com o QA que os testes da feature e dos fluxos relacionados foram executados no estado final da branch, com resultados e evidências. Não envie com essa validação pendente ou falhando.
+
+## Idioma do código
+
+Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. A verificação de idioma do diff commitado é obrigatória antes de abrir PR: violação ou análise incompleta bloqueia a abertura. Consulte a seção 13 da skill development-workflow. Não exija tradução de documentos por esta regra.

@@ -47,3 +47,7 @@ Quando relevante ao volume e ao risco, explicite a complexidade de tempo e memó
 Planeje a implementação dos testes como responsabilidade do Revisor / QA, separada da implementação da aplicação pelo dev. Nos Critérios de Aceite e nas Evidências, relacione cenários do fluxo e riscos concretos de segurança/qualidade; o objetivo dos testes é detectar defeitos e verificar contratos, não apenas passar.
 
 A execução dos testes da feature e dos fluxos relacionados é obrigatória antes de enviar qualquer PR para stage/prod. Inclua sua identificação, revisão testada, comandos/resultados e pendências nas evidências. Mudanças posteriores exigem repetir a validação afetada. O orquestrador não considera a entrega apta para PR se essa verificação estiver faltando ou falhando.
+
+## Idioma do código
+
+Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. A verificação de idioma do diff commitado é obrigatória antes de abrir PR: violação ou análise incompleta bloqueia a abertura. Consulte a seção 13 da skill development-workflow. Não exija tradução de documentos por esta regra.
