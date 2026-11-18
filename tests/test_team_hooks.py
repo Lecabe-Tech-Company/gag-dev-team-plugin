@@ -20,7 +20,8 @@ class LifecycleTests(ProjectCase):
 
     def invoke(self, harness, event_name, data):
         output = io.StringIO()
-        with patch.object(sys, "argv", ["team_hooks.py", harness, event_name]), patch.object(sys, "stdin", io.StringIO(json.dumps(data))), contextlib.redirect_stdout(output):
+        input_stream = io.TextIOWrapper(io.BytesIO(json.dumps(data).encode("utf-8")), encoding="utf-8")
+        with input_stream, patch.object(sys, "argv", ["team_hooks.py", harness, event_name]), patch.object(sys, "stdin", input_stream), contextlib.redirect_stdout(output):
             self.hook.main()
         return json.loads(output.getvalue())
 

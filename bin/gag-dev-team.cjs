@@ -16,6 +16,6 @@ if (!python) {
   process.exit(1);
 }
 const [command, prefix] = python;
-const child = spawnSync(command, [...prefix, path.join(__dirname, '..', 'scripts', 'gag_dev_team.py'),
+const child = spawnSync(command, [...prefix, '-X', 'utf8', path.join(__dirname, '..', 'scripts', 'gag_dev_team.py'),
   ...process.argv.slice(2)], {stdio: 'inherit'});
 process.exit(child.status ?? 1);

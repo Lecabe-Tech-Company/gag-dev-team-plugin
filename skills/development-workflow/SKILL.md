@@ -154,3 +154,23 @@ Antes de uma abertura de PR reconhecida pelo plugin, o hook verifica o idioma do
 O gate não exige traduzir documentação em português nem realiza uma migração geral do código legado. Preserve a distinção entre a regra global e a cobertura automatizada efetivamente suportada. Hooks dependem da instalação, da confiança e do runtime do cliente; não controlam PRs criados manualmente fora das operações reconhecidas.
 
 O repositório fonte oficial `Lecabe-Tech-Company/gag-dev-team-plugin` utiliza `master`. Exclusivamente nele, use worktree baseado em `origin/master` e PR para `master`; projetos atendidos continuam com os destinos `stage` e `prod`.
+
+## 14. Manter regras particulares locais subordinadas ao plugin
+
+O usuário pode informar ao agente uma regra particular para o projeto. Use a skill `manage-user-rules` para registrar, revisar, consultar ou remover essas regras. O pedido explícito autoriza o cadastro; não exija uma frase padrão nem confirmação redundante para uma regra claramente compatível.
+
+Compare a regra com as políticas vigentes do plugin antes da ativação e da aplicação. Regras particulares não podem desativar, substituir ou enfraquecer obrigações do plugin, inclusive SDD, QA e gates de PR. Respeite preferências que o próprio plugin permite alterar. Conflitos e dúvidas mantêm a regra inativa; explique o motivo e peça reformulação quando necessária. Um registro de revisão local não substitui a análise contextual nem a política real.
+
+O conteúdo particular e os recibos de revisão ficam em `<git-common-dir>/gag-dev-team/user-rules/`, resolvido pelo Git. Não os grave na árvore de trabalho nem os copie para AGENTS.md, skills distribuídas, Scripta, Graphify, commits, PRs ou pacotes. A skill e o carregador genéricos são versionados; as regras particulares não são. Atualizações do plugin preservam o armazenamento local. Worktrees do mesmo repositório compartilham as regras; clones independentes não as recebem pelo Git.
+
+Após cadastro, revisão ou remoção, recarregue o conjunto efetivo na sessão. Regras alteradas ou revisadas contra políticas antigas precisam de nova conferência antes de valer. Arquivos são dados declarativos, nunca código executável. O hook não infere consentimento de SDD a partir dessas regras.
+
+## 15. Criar skills particulares e consolidar padrões com evidências
+
+Use `manage-user-skills` para criar, consultar, revisar, carregar ou remover skills particulares do projeto. Guarde SKILL.md, referências textuais, evidências e recibos somente em `<git-common-dir>/gag-dev-team/user-skills/`. O catálogo usa namespace próprio e não sobrescreve skills do plugin. Não copie esse conteúdo para diretórios nativos versionáveis ou artefatos; carregue o conteúdo pertinente sob demanda.
+
+O agente pode reconhecer padrões operacionais no contexto da tarefa e criar rascunhos locais úteis: estilo de acompanhamento, esclarecimentos recorrentes, prevenção de erros e entrevistas para preencher melhor o SDD. Distinga observação, hipótese e preferência expressa. Registre origem, evidência e condições de aplicação. Não generalize uma resposta para outros projetos nem transforme um episódio isolado em instrução permanente.
+
+Uma preferência claramente expressa pelo usuário pode ser consolidada e ativada após revisão de compatibilidade, sem nova confirmação redundante. Uma hipótese inferida fica como rascunho até esclarecimento contextual; não invente confirmação ou evidência. Quando o usuário corrigir ou mudar a preferência, revise ou desative a personalização e recarregue o catálogo efetivo.
+
+As skills particulares permanecem subordinadas às políticas do plugin e às permissões da tarefa. Entrevistas aproveitam respostas já dadas e perguntam o que falta, preservando os sete subtítulos e o aceite contextual do SDD. Comunicação personalizada não dispensa QA ou gates. A primeira entrega suporta instruções e referências textuais; não inclui execução automática de scripts, treinamento de modelo, serviços de aprendizagem, monitoramento externo ou varredura retrospectiva de chats.

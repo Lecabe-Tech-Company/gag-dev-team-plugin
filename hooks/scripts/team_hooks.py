@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT / "hooks/scripts"))
 from sdd_gate import deny
 from releases import update_project
 from harness_adapters import guidance
+from user_rules import context_for as user_rule_context
+from user_skills import catalog_for as user_skill_catalog
 import check_scripta
 import graphify_hook
 
@@ -35,8 +37,28 @@ def normalize(event, harness):
 
 def main():
     harness, event_name = sys.argv[1:3]
-    event = json.load(sys.stdin)
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    raw_event = stream.read()
+    if isinstance(raw_event, bytes):
+        raw_event = raw_event.decode("utf-8")
+    event = json.loads(raw_event)
     project = ROOT.parent.parent
+    if harness == "portable" and event_name == "SessionStart":
+        project = event.get("cwd") or event.get("workingDirectory") or event.get("workspace")
+        messages = []
+        if not isinstance(project, str) or not project:
+            messages.append("The active project path is unavailable; no private project rules or user skills were applied.")
+        else:
+            try:
+                messages.append(user_rule_context(project, ROOT)["context"])
+            except Exception:
+                messages.append("The complete private project-rule snapshot is unavailable; no private rules were applied. Plugin policies remain in force.")
+            try:
+                messages.append(user_skill_catalog(project, ROOT)["context"])
+            except Exception:
+                messages.append("The private user-skill catalog is unavailable; no private skills were applied. Plugin policies remain in force.")
+        print(json.dumps(context("\n\n".join(messages), "codex"), ensure_ascii=True))
+        return
     if event_name == "UserPromptSubmit":
         # Native prompt hooks cannot reliably distinguish consent from quoted or
         # ambiguous text. Keep their output neutral; the orchestrator reads context.
@@ -54,6 +76,20 @@ def main():
             print(json.dumps({"decision": "stop"} if harness == "antigravity" else {}))
             return
         messages = [guidance()]
+        try:
+            messages.append(user_rule_context(project, ROOT)["context"])
+        except Exception:
+            messages.append(
+                "The complete private project-rule snapshot is unavailable; no private rules were applied. "
+                "All GAG Dev Team plugin policies remain in force."
+            )
+        try:
+            messages.append(user_skill_catalog(project, ROOT)["context"])
+        except Exception:
+            messages.append(
+                "The private user-skill catalog is unavailable; no private skills were applied. "
+                "All GAG Dev Team plugin policies remain in force."
+            )
         if changed and changed.get("updated"):
             messages.append("O plugin foi atualizado para " + changed["version"] + ". Novos perfis serão recarregados na próxima sessão.")
         output = check_scripta.output_for(check_scripta.inspect_access(ROOT))

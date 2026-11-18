@@ -374,8 +374,9 @@ class NativeLanguageGateTests(unittest.TestCase):
         team = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(team)
         output = io.StringIO()
-        with patch.object(sys, "argv", [str(path), harness, "PreToolUse"]), \
-                patch.object(sys, "stdin", io.StringIO(json.dumps(event))), \
+        input_stream = io.TextIOWrapper(io.BytesIO(json.dumps(event).encode("utf-8")), encoding="utf-8")
+        with input_stream, patch.object(sys, "argv", [str(path), harness, "PreToolUse"]), \
+                patch.object(sys, "stdin", input_stream), \
                 patch.object(team.graphify_hook, "run", side_effect=self.fake_run), \
                 patch.object(team.graphify_hook, "ensure_graphify", return_value=self.graphify_binary), \
                 contextlib.redirect_stdout(output):

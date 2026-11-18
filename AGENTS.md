@@ -1,5 +1,11 @@
 # Instruções do GAG Dev Team Plugin
 
+## Regras particulares locais
+
+Use a skill `manage-user-rules` para cadastrar, consultar ou remover regras particulares. O conteúdo fica em `<git-common-dir>/gag-dev-team/user-rules/`, fora da árvore versionável, e não deve ser copiado para arquivos rastreados, documentação pública ou pacotes. Regras particulares nunca substituem obrigações do plugin. Antes de ativar e aplicar, confira a compatibilidade com as políticas vigentes; conflito ou dúvida mantém a regra inativa. Um recibo de revisão local não concede autoridade sobre as políticas reais.
+
+Use `manage-user-skills` para skills particulares em `<git-common-dir>/gag-dev-team/user-skills/`. O catálogo privado tem namespace próprio e carrega o conteúdo somente quando pertinente. Padrões operacionais podem gerar rascunhos locais; não transforme uma hipótese ou episódio isolado em preferência permanente. Consolide preferências expressas pelo usuário, esclareça incertezas e preserve as políticas do plugin. A personalização de entrevistas, comunicação e prevenção de erros não autoriza varrer chats, executar scripts automaticamente ou dispensar SDD/QA/gates.
+
 ## Idioma do código
 
 Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. O hook de abertura de PR deve negar código fora da regra e verificações incompletas. Consulte a seção 13 de `skills/development-workflow/SKILL.md`.
