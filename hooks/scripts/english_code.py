@@ -17,6 +17,9 @@ DICTIONARY_SHA256 = "4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a83
 SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml"}
 NON_ENGLISH_HOMOGRAPHS = {"nome", "dados", "valor", "valores"}
 TECHNICAL_WORDS = {
+    # Exact Python standard-library contracts and established development terms.
+    "casefold", "chmod", "contextlib", "devnull", "extensionless", "extractall", "frontend",
+    "getvalue", "mkdir", "stderr", "tempfile", "unittest", "unlink", "util", "zipfile",
     "api", "args", "ascii", "aws", "ci", "cli", "cls", "css", "csrf", "db", "dns", "html",
     "http", "https", "id", "ide", "ios", "ip", "json", "jwt", "kwargs", "mcp", "mvc",
     "oauth", "php", "pr", "qa", "sdd", "self", "sku", "sql", "ssh", "tcp", "tls", "ui",
