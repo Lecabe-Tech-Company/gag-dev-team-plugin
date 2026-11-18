@@ -18,7 +18,7 @@ function deny(harness, reason) {
 exports.hook = (harness, event) => {
   try {
     const [name, prefix] = python();
-    const child = spawnSync(name, [...prefix, path.join(__dirname, '..', 'hooks', 'scripts', 'team_hooks.py'), harness, event], {
+    const child = spawnSync(name, [...prefix, '-X', 'utf8', path.join(__dirname, '..', 'hooks', 'scripts', 'team_hooks.py'), harness, event], {
       input:fs.readFileSync(0), encoding:'utf8', timeout:290000, maxBuffer:4 * 1024 * 1024
     });
     if (child.status !== 0) throw new Error('Verificação do time não concluída.');

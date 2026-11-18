@@ -17,6 +17,15 @@ DICTIONARY_SHA256 = "4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a83
 SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml"}
 NON_ENGLISH_HOMOGRAPHS = {"nome", "dados", "valor", "valores"}
 TECHNICAL_WORDS = {
+    # Standard-library, operating-system, Git, and skill-format contracts.
+    "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
+    "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",
+    "env", "environ", "expanduser", "extractfile", "fcntl", "frontmatter", "fstat", "fsync",
+    "fullmatch", "getmembers", "imode", "isfile", "isoformat", "issubset", "iterdir", "joinpath",
+    "lk", "lseek", "msvcrt", "namelist", "namespace", "nblck", "npm", "oversized", "pathsep",
+    "posix", "pythoncoerceclocale", "pythonpath", "pythonutf8", "rdwr", "rglob", "rmdir", "rmtree",
+    "roundtrip", "roundtrips", "rstrip", "scripta", "symlink", "symlinked", "tarfile", "unlck",
+    "unmanifested", "utf8", "uuid4", "versionable", "worktree", "worktrees",
     # Exact Python standard-library contracts and established development terms.
     "casefold", "chmod", "contextlib", "devnull", "extensionless", "extractall", "frontend",
     "getvalue", "mkdir", "stderr", "tempfile", "unittest", "unlink", "util", "zipfile",

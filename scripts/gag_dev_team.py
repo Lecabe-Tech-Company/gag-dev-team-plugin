@@ -152,6 +152,11 @@ def choose_harnesses(project, requested):
 def main(argv=None):
     from releases import install_latest, update_project
     from sdd_gate import declare_sdd, approve_sdd, record_sdd_approval
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "rules":
+        return run_user_rules_cli(arguments[1:])
+    if arguments and arguments[0] == "skills":
+        return run_user_skills_cli(arguments[1:])
     parser = argparse.ArgumentParser(description="GAG Dev Team: seu time de desenvolvimento, organizado.")
     parser.add_argument("command", choices=["install", "configure", "update", "declare-sdd", "approve-sdd"])
     parser.add_argument("--project", default=".", help="Pasta do projeto")
@@ -162,7 +167,7 @@ def main(argv=None):
     parser.add_argument("--evidence", help="Trecho literal do aceite já dado pelo usuário na conversa")
     parser.add_argument("--recorded-by", help="Pessoa ou agente que registrou a evidência contextual")
     parser.add_argument("--no-browser", action="store_true", help="Apenas informar a URL local")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
         if args.command == "install":
             selected = choose_harnesses(args.project, args.harness)
@@ -222,6 +227,164 @@ def main(argv=None):
         if args.command in ("declare-sdd", "approve-sdd"):
             parser.exit(1, f"Registro local não concluído: {error}. O estado local não decide se a conversa autorizou; use o contexto real sem repetir aceite claro por causa desta falha.\n")
         parser.exit(1, f"Configuração não concluída: {error}\n")
+
+
+def run_user_rules_cli(argv):
+    import json
+    from user_rules import (
+        UserRulesError,
+        context_for,
+        list_rules,
+        policy_snapshot,
+        propose_rule,
+        read_rule,
+        remove_rule,
+        review_rule,
+        storage_root,
+    )
+
+    parser = argparse.ArgumentParser(prog="gag-dev-team rules", description="Manage private declarative project rules.")
+    commands = parser.add_subparsers(dest="action", required=True)
+    for name in ("policy", "list", "add", "context"):
+        command = commands.add_parser(name)
+        command.add_argument("--project", default=".", help="Git project or linked worktree path")
+    show_parser = commands.add_parser("show")
+    show_parser.add_argument("rule_id")
+    show_parser.add_argument("--project", default=".")
+    review_parser = commands.add_parser("review")
+    review_parser.add_argument("rule_id")
+    review_parser.add_argument("--project", default=".")
+    review_parser.add_argument("--decision", choices=("accept", "reject", "unclear"), required=True)
+    review_parser.add_argument("--reviewer", required=True)
+    review_parser.add_argument("--reason", required=True)
+    review_parser.add_argument("--content-digest", required=True)
+    review_parser.add_argument("--policy-digest", required=True)
+    review_parser.add_argument("--expected-revision", type=int, required=True)
+    remove_parser = commands.add_parser("remove")
+    remove_parser.add_argument("rule_id")
+    remove_parser.add_argument("--project", default=".")
+    remove_parser.add_argument("--expected-revision", type=int, required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.action == "policy":
+            storage_root(args.project)
+            result = policy_snapshot()
+        elif args.action == "list":
+            result = list_rules(args.project)
+        elif args.action == "add":
+            if sys.stdin.isatty():
+                raise UserRulesError("Provide the proposed rule through standard input, not a command argument.")
+            try:
+                content = sys.stdin.buffer.read().decode("utf-8")
+            except UnicodeError as error:
+                raise UserRulesError("The proposed rule must be valid UTF-8 text.") from error
+            result = propose_rule(args.project, content)
+        elif args.action == "show":
+            result = read_rule(args.project, args.rule_id)
+        elif args.action == "review":
+            result = review_rule(
+                args.project,
+                args.rule_id,
+                args.decision,
+                args.reviewer,
+                args.reason,
+                args.content_digest,
+                args.policy_digest,
+                args.expected_revision,
+            )
+        elif args.action == "remove":
+            result = remove_rule(args.project, args.rule_id, args.expected_revision)
+        else:
+            result = context_for(args.project)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return
+    except (UserRulesError, OSError, ValueError, RuntimeError) as error:
+        parser.exit(1, f"User rules operation failed: {error}\n")
+
+
+def run_user_skills_cli(argv):
+    import json
+    from user_skills import (
+        UserSkillsError,
+        catalog_for,
+        confirm_skill_origin,
+        list_skills,
+        load_skill,
+        propose_skill,
+        read_skill,
+        remove_skill,
+        review_skill,
+        storage_root,
+    )
+    from user_rules import policy_snapshot
+
+    parser = argparse.ArgumentParser(prog="gag-dev-team skills", description="Manage private user skills.")
+    commands = parser.add_subparsers(dest="action", required=True)
+    for name in ("policy", "list", "add", "catalog"):
+        command = commands.add_parser(name)
+        command.add_argument("--project", default=".")
+    for name in ("show", "load"):
+        command = commands.add_parser(name)
+        command.add_argument("skill_id")
+        command.add_argument("--project", default=".")
+    review_parser = commands.add_parser("review")
+    review_parser.add_argument("skill_id")
+    review_parser.add_argument("--project", default=".")
+    review_parser.add_argument("--decision", choices=("accept", "reject", "unclear"), required=True)
+    review_parser.add_argument("--reviewer", required=True)
+    review_parser.add_argument("--reason", required=True)
+    review_parser.add_argument("--content-digest", required=True)
+    review_parser.add_argument("--policy-digest", required=True)
+    review_parser.add_argument("--expected-revision", type=int, required=True)
+    confirm_parser = commands.add_parser("confirm")
+    confirm_parser.add_argument("skill_id")
+    confirm_parser.add_argument("--project", default=".")
+    confirm_parser.add_argument("--content-digest", required=True)
+    confirm_parser.add_argument("--policy-digest", required=True)
+    confirm_parser.add_argument("--expected-revision", type=int, required=True)
+    remove_parser = commands.add_parser("remove")
+    remove_parser.add_argument("skill_id")
+    remove_parser.add_argument("--project", default=".")
+    remove_parser.add_argument("--expected-revision", type=int, required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.action == "policy":
+            storage_root(args.project)
+            result = policy_snapshot()
+        elif args.action == "list":
+            result = list_skills(args.project)
+        elif args.action == "add":
+            if sys.stdin.isatty():
+                raise UserSkillsError("Provide the proposed skill as JSON through standard input.")
+            try:
+                bundle = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as error:
+                raise UserSkillsError("The proposed skill must be valid UTF-8 JSON.") from error
+            result = propose_skill(args.project, bundle)
+        elif args.action == "show":
+            result = read_skill(args.project, args.skill_id)
+        elif args.action == "review":
+            result = review_skill(args.project, args.skill_id, args.decision, args.reviewer, args.reason,
+                                 args.content_digest, args.policy_digest, args.expected_revision)
+        elif args.action == "confirm":
+            if sys.stdin.isatty():
+                raise UserSkillsError("Provide the user's clarification through standard input, not command arguments.")
+            try:
+                confirmation = sys.stdin.buffer.read().decode("utf-8")
+            except UnicodeError as error:
+                raise UserSkillsError("The user's clarification must be valid UTF-8 text.") from error
+            result = confirm_skill_origin(args.project, args.skill_id, confirmation,
+                                          args.content_digest, args.policy_digest, args.expected_revision)
+        elif args.action == "remove":
+            result = remove_skill(args.project, args.skill_id, args.expected_revision)
+        elif args.action == "catalog":
+            result = catalog_for(args.project)
+        else:
+            result = load_skill(args.project, args.skill_id)
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+        return
+    except (UserSkillsError, OSError, ValueError, RuntimeError) as error:
+        parser.exit(1, f"User skills operation failed: {error}\n")
 
 
 if __name__ == "__main__":

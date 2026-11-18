@@ -22,6 +22,22 @@ O vocabulário é uma verificação lexical de identificadores, não uma prova d
 
 Compatível com **Codex, Claude Code, Cursor e Antigravity**. Escolha um ou vários durante a instalação.
 
+## Regras particulares do projeto
+
+Peça ao agente para guardar uma regra particular usando a skill `manage-user-rules`. Ela compara sua regra com as políticas do plugin e ativa somente regras compatíveis. Regras conflitantes ficam inativas, com explicação; elas não podem dispensar SDD, QA ou os gates do PR.
+
+O conteúdo fica em `<git-common-dir>/gag-dev-team/user-rules/`, nos metadados locais do repositório e fora da árvore versionável. Não depende apenas de `.gitignore`: não é um arquivo da árvore que possa entrar normalmente em um commit. Worktrees compartilham esse armazenamento; outro clone não recebe suas regras por `clone` ou `pull`.
+
+A skill aplica o conjunto aceito na conversa atual; novas sessões o recuperam pelos hooks. Atualizações preservam os dados. Edições manuais ou mudanças nas políticas exigem nova revisão. A análise de compatibilidade de texto é contextual, feita pelo agente; hashes e estados locais detectam revisões inválidas, sem fingir que resolvem a semântica sozinhos.
+
+## Skills particulares e personalização
+
+Use `manage-user-skills` para criar uma skill particular do projeto. Ela fica em `<git-common-dir>/gag-dev-team/user-skills/`, com SKILL.md e referências textuais. Os hooks mostram um catálogo privado; o agente lê o conteúdo quando ele é pertinente. Esse catálogo tem namespace próprio e não substitui as skills do plugin nem promete aparecer em seletores nativos dos editores.
+
+O agente também pode sugerir e criar rascunhos a partir de padrões da tarefa: seu modo de acompanhar o trabalho, dúvidas recorrentes, erros evitáveis e perguntas que ajudam a completar o SDD. Preferências explícitas podem ser consolidadas após revisão; hipóteses inferidas continuam inativas até esclarecimento. Uma ocorrência isolada não vira regra permanente.
+
+As skills preservam as obrigações do plugin, os sete subtítulos e o aceite do SDD e as permissões da tarefa. O recurso não executa scripts automaticamente nem percorre seus chats anteriores. Dados particulares não são enviados ao Git ou incluídos nos pacotes e permanecem locais após atualizações.
+
 ## Instalação
 
 Tenha **Git**, **Node.js 18+ com npm** e **Python 3.11+** instalados. Abra o terminal na pasta do seu projeto Git.
