@@ -51,6 +51,8 @@ TECHNICAL_WORDS = {
     "csv", "downloader", "downloaders", "enum", "enums", "eol", "fclose", "fflush",
     "fopen", "fpassthru", "fwrite", "isset", "matchable", "md5", "pdo", "stringable",
     "stringify", "strlen", "strtolower", "symfony", "tempnam", "throwable", "xlsx",
+    # PHP namespace/type syntax and Python parsing/mapping contracts used by this analyzer.
+    "classmethod", "iterable", "namespaces", "setdefault",
 }
 TOKEN_PATTERN = re.compile(r"[^\W\d]\w*", re.UNICODE)
 IDENTIFIER_SPLIT_PATTERN = re.compile(r"[^A-Za-z]+")
@@ -259,6 +261,17 @@ def _tree_descendants(node):
         stack.extend(reversed(current.named_children))
 
 
+def _same_scope_descendants(node):
+    stack = [node]
+    nested_scopes = {"function_definition", "method_declaration", "anonymous_function", "arrow_function"}
+    while stack:
+        current = stack.pop()
+        yield current
+        if current is not node and current.type in nested_scopes:
+            continue
+        stack.extend(reversed(current.named_children))
+
+
 def _call_name(node):
     if node.type not in {"function_call_expression", "scoped_call_expression"} or not node.named_children:
         return None
@@ -309,15 +322,21 @@ def _contains_namespace_definition(root):
 
 def _has_workbook_rows_source(function_node):
     """Recognize only helpers that turn the visible first worksheet row into map keys."""
-    rows_variable = None
-    headers_variable = None
+    assignments_by_variable = {}
+    assignments = []
 
-    for node in _tree_descendants(function_node):
+    for node in _same_scope_descendants(function_node):
         if node.type != "assignment_expression" or len(node.named_children) < 2:
             continue
 
         left, right = node.named_children[:2]
         left_name = _variable_name(left)
+        if left_name:
+            assignments_by_variable.setdefault(left_name, []).append(node)
+        assignments.append((node, left_name, right))
+
+    rows_assignments = []
+    for node, left_name, right in assignments:
         if right.type == "member_call_expression":
             method_names = [child.text.decode("utf-8") for child in right.named_children if child.type == "name"]
             if "toArray" in method_names and any(
@@ -325,32 +344,53 @@ def _has_workbook_rows_source(function_node):
                 and "getSheetByName" in [child.text.decode("utf-8") for child in descendant.named_children if child.type == "name"]
                 for descendant in _tree_descendants(right)
             ):
-                rows_variable = left_name
+                if left_name:
+                    rows_assignments.append((node, left_name))
 
+    if len(rows_assignments) != 1:
+        return False
+
+    rows_assignment, rows_variable = rows_assignments[0]
+    if len(assignments_by_variable.get(rows_variable, [])) != 1:
+        return False
+
+    headers_assignments = []
+    for node, left_name, right in assignments:
         if _call_name(right) == "array_shift":
             values = _argument_values(right)
             if left_name and len(values) == 1 and _variable_name(values[0]) == rows_variable:
-                headers_variable = left_name
+                headers_assignments.append((node, left_name))
 
-    if rows_variable is None or headers_variable is None:
+    if len(headers_assignments) != 1:
         return False
 
-    for node in _tree_descendants(function_node):
-        if node.type != "return_statement" or not node.named_children:
+    headers_assignment, headers_variable = headers_assignments[0]
+    if rows_variable == headers_variable or len(assignments_by_variable.get(headers_variable, [])) != 1 \
+        or rows_assignment.end_byte > headers_assignment.start_byte:
+        return False
+
+    return_statements = [
+        node for node in _same_scope_descendants(function_node)
+        if node.type == "return_statement" and node.named_children
+    ]
+    if len(return_statements) != 1 or return_statements[0].start_byte < headers_assignment.end_byte:
+        return False
+
+    returned = return_statements[0].named_children[0]
+    if _call_name(returned) != "array_map":
+        return False
+
+    arguments = _argument_values(returned)
+    if len(arguments) != 2 or _variable_name(arguments[1]) != rows_variable:
+        return False
+
+    mapper = arguments[0]
+    for call in _tree_descendants(mapper):
+        if _call_name(call) != "array_combine":
             continue
-        returned = node.named_children[0]
-        if _call_name(returned) != "array_map":
-            continue
-        arguments = _argument_values(returned)
-        if len(arguments) != 2 or _variable_name(arguments[1]) != rows_variable:
-            continue
-        mapper = arguments[0]
-        for call in _tree_descendants(mapper):
-            if _call_name(call) != "array_combine":
-                continue
-            combine_arguments = _argument_values(call)
-            if len(combine_arguments) == 2 and _variable_name(combine_arguments[0]) == headers_variable:
-                return True
+        combine_arguments = _argument_values(call)
+        if len(combine_arguments) == 2 and _variable_name(combine_arguments[0]) == headers_variable:
+            return True
 
     return False
 
@@ -430,12 +470,21 @@ def _exporter_assignment(node):
 
 
 def _workbook_row_variables(root, helper_names):
-    variables = set()
+    variables = {}
     columns_by_scope = set()
     exporters_by_scope = {}
     csv_readers_with_headers = set()
     nodes = list(_tree_descendants(root))
     has_namespaces = any(node.type == "namespace_definition" for node in nodes)
+    assignment_counts = {}
+
+    for node in nodes:
+        variable = _assigned_variable(node)
+        if variable:
+            scope = _enclosing_scope(node)
+            key = (scope, variable)
+            assignment_counts[key] = assignment_counts.get(key, 0) + 1
+
     for node in nodes:
         scope = _enclosing_scope(node)
         if node.type == "member_call_expression":
@@ -443,19 +492,32 @@ def _workbook_row_variables(root, helper_names):
             receiver = node.named_children[0] if node.named_children else None
             if method_name == "setHeaderOffset" and receiver and _variable_name(receiver):
                 csv_readers_with_headers.add((scope, _variable_name(receiver)))
-        columns_variable = _export_columns_assignment(node)
-        if columns_variable:
-            columns_by_scope.add((scope, columns_variable))
-        exporter = _exporter_assignment(node)
-        if exporter:
-            exporters_by_scope[(scope, exporter[0])] = exporter[1]
 
-    for node in nodes:
         variable = _assigned_variable(node)
         if not variable or len(node.named_children) < 2:
             continue
+
         value = node.named_children[1]
-        scope = _enclosing_scope(node)
+        columns_variable = _export_columns_assignment(node)
+        if columns_variable:
+            columns_by_scope.add((scope, columns_variable))
+        else:
+            columns_by_scope.discard((scope, variable))
+
+        exporter = _exporter_assignment(node)
+        if exporter:
+            exporter_columns = {
+                column for column in exporter[1]
+                if (scope, column) in columns_by_scope
+            }
+            if exporter_columns:
+                exporters_by_scope[(scope, exporter[0])] = exporter_columns
+            else:
+                exporters_by_scope.pop((scope, exporter[0]), None)
+        else:
+            exporters_by_scope.pop((scope, variable), None)
+
+        csv_readers_with_headers.discard((scope, variable))
         source_is_output = _is_output_row_source(
             value,
             scope,
@@ -467,10 +529,15 @@ def _workbook_row_variables(root, helper_names):
             exporters_by_scope,
         )
         if source_is_output:
-            variables.add((scope, variable))
+            variables[(scope, variable)] = node.end_byte
         else:
-            variables.discard((scope, variable))
-    return variables
+            variables.pop((scope, variable), None)
+
+    return {
+        key: position
+        for key, position in variables.items()
+        if assignment_counts.get(key) == 1
+    }
 
 
 def _is_output_row_source(value, scope, helper_names, allow_global_helper, variables, csv_readers, columns, exporters):
@@ -479,7 +546,8 @@ def _is_output_row_source(value, scope, helper_names, allow_global_helper, varia
 
     if value.type == "subscript_expression" and value.named_children:
         base = value.named_children[0]
-        if (allow_global_helper and _call_name(base) in helper_names) or _scope_has_row_variable(base, variables):
+        if (allow_global_helper and _call_name(base) in helper_names) \
+            or _scope_has_row_variable(base, variables, value.start_byte):
             return True
 
     if _call_name(value) == "iterator_to_array":
@@ -499,16 +567,19 @@ def _is_output_row_source(value, scope, helper_names, allow_global_helper, varia
         and column_name in exporters.get((scope, exporter_name), set())
 
 
-def _scope_has_row_variable(node, row_variables):
+def _scope_has_row_variable(node, row_variables, position):
     scope = _enclosing_scope(node)
     current = node
     while current.type == "subscript_expression" and current.named_children:
         current = current.named_children[0]
-    return current.type == "variable_name" and (scope, current.text.decode("utf-8")) in row_variables
+    if current.type != "variable_name":
+        return False
+    source_position = row_variables.get((scope, current.text.decode("utf-8")))
+    return source_position is not None and position >= source_position
 
 
 def _is_workbook_row_access(node, row_variables):
-    return _scope_has_row_variable(node.named_children[0], row_variables)
+    return _scope_has_row_variable(node.named_children[0], row_variables, node.start_byte)
 
 
 def _is_workbook_row_expectation(node, row_variables):
@@ -520,7 +591,9 @@ def _is_workbook_row_expectation(node, row_variables):
                 receiver = parent.named_children[0]
                 if _call_name(receiver) == "expect":
                     arguments = _argument_values(receiver)
-                    return len(arguments) == 1 and _scope_has_row_variable(arguments[0], row_variables)
+                    return len(arguments) == 1 and _scope_has_row_variable(
+                        arguments[0], row_variables, arguments[0].start_byte,
+                    )
         parent = parent.parent
     return False
 

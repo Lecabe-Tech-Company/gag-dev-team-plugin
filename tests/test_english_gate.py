@@ -454,6 +454,54 @@ $row = array_combine(array_values($columns), $exporter($field));
 expect($row['Nome'])->toBe('RAM');
 """)
 
+    def test_python_builtins_and_php_iterable_contracts_are_accepted(self):
+        self.assert_accepted("""class Registry:
+    @classmethod
+    def namespaces(cls):
+        entries = {}
+        entries.setdefault("items", [])
+        return entries
+""", path="hooks/registry.py")
+        self.assert_accepted("""<?php
+function namespaces(iterable $items): iterable { return $items; }
+""")
+
+    def test_helper_requires_reachable_same_scope_output_origin(self):
+        for helper in (
+            """function exportRows($book, $values, $headers): array {
+    return array_map(fn ($row) => array_combine($headers, $row), $values);
+    $values = $book->getSheetByName('Campos')->toArray();
+    $headers = array_shift($values);
+}""",
+            """function exportRows($book, $payload): array {
+    $unused = function () use ($book) {
+        $values = $book->getSheetByName('Campos')->toArray();
+        $headers = array_shift($values);
+        return array_map(fn ($row) => array_combine($headers, $row), $values);
+    };
+    return $payload;
+}""",
+        ):
+            with self.subTest(helper=helper):
+                self.assert_rejected("<?php\n" + helper + "\n$output = exportRows($book, $payload, $headers); expect($output['Nome'])->toBe('RAM');")
+
+    def test_output_sources_require_preceding_unmodified_contracts(self):
+        columns = """$columns = collect(FieldExporter::getColumns())->mapWithKeys(fn ($column): array => [$column->getName() => $column->getLabel()])->all();
+$exporter = new FieldExporter(new Export(), $columns, []);
+"""
+        mapping = "$row = array_combine(array_values($columns), $exporter($field));\n"
+        cases = (
+            mapping + "expect($row['Nome'])->toBe('RAM');\n" + columns,
+            columns + "$columns = $payload;\n" + mapping + "expect($row['Nome'])->toBe('RAM');",
+            columns + "$exporter = $callback;\n" + mapping + "expect($row['Nome'])->toBe('RAM');",
+            "$rows = iterator_to_array($reader->getRecords(), false);\nexpect($rows[0]['Nome'])->toBe('RAM');\n$reader->setHeaderOffset(0);",
+            "$reader->setHeaderOffset(0);\n$reader = $payload;\n$rows = iterator_to_array($reader->getRecords(), false);\nexpect($rows[0]['Nome'])->toBe('RAM');",
+        )
+        self.assert_rejected(self.SHEET_HELPER + "\n$fields = $payload; expect($fields['Nome'])->toBe('RAM'); $fields = exportRows($book, 'Campos');")
+        for source in cases:
+            with self.subTest(source=source):
+                self.assert_rejected("<?php\n" + source)
+
     def test_presentation_context_does_not_exempt_portuguese_code_identifiers(self):
         for fragment, token in (
             ("$nome = 1;", "nome"),
