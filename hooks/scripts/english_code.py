@@ -31,6 +31,8 @@ TECHNICAL_WORDS = {
     "const", "enum", "defs", "setdefault", "fromisoformat", "tzinfo", "mkstemp",
     "fchmod", "astimezone", "strftime", "isalnum", "wfile",
     "lifecycle", "sigterm", "executables",
+    # Python standard-library contracts and the exact external npm package name.
+    "getpid", "base64", "b64encode", "sha512", "lightningcss",
     # Standard-library, operating-system, Git, and skill-format contracts.
     "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
     "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",

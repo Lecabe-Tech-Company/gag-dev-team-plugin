@@ -405,7 +405,8 @@ class EnglishGateTests(unittest.TestCase):
 
     def test_lockfile_name_does_not_exempt_unexpected_portuguese_local_keys(self):
         manifest, lock = self.lockfile()
-        lock["quantidade"] = 1
+        untranslated_key = "quantidade"
+        lock[untranslated_key] = 1
         self.commit({"dashboard/package.json": json.dumps(manifest),
                      "dashboard/package-lock.json": json.dumps(lock)})
         with self.assertRaises(self.hook.GateError):
