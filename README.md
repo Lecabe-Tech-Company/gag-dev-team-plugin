@@ -44,7 +44,7 @@ O plugin inclui um dashboard Next.js local para regras, skills, sessões, proble
 
 O histórico JSON é imutável e separado por host e ID numérico GitHub nos metadados locais do Git. Correções e desativações adicionam eventos; nenhum registro histórico é apagado. Dados legados compartilhados exigem declaração explícita de titularidade antes da associação. Métricas cobrem somente tentativas e problemas registrados, com origem configurada/declarada/observada/desconhecida do modelo; não representam todas as chamadas LLM.
 
-Pedidos claros de instalação de plugins ou skills pessoais usam `install-user-extension`: versões e proveniência ficam no perfil privado da máquina, fora de Git, e cada projeto mantém suas referências. Toda ativação depende de compatibilidade com as regras obrigatórias do plugin. Instalação nativa pode depender de trust, autenticação ou reinício; o agente informa o estado real.
+Pedidos claros de instalação de plugins ou skills pessoais usam `install-user-extension`: versões e proveniência ficam no perfil privado da máquina, fora de Git, e cada projeto mantém suas referências. Toda ativação depende de compatibilidade com as regras obrigatórias do plugin. Plugins nativos usam somente os bytes de um artefato fixado e revisado, em um perfil separado por conta. Se o host estiver em outro perfil, a operação fica pendente sem chamar o instalador. Trust, autenticação, verificação e reinício também podem exigir regularização; o agente informa o estado real.
 
 Tenha **Git**, **Node.js 18+ com npm** e **Python 3.11+** instalados. O dashboard local requer **Node.js 20.9+**. Abra o terminal na pasta do seu projeto Git.
 

@@ -16,7 +16,7 @@ from user_rules import (
     _ensure_account_directory,
     _existing_symlink,
     _require_revision,
-    _account_binding,
+    _account_binding as _user_rules_account_binding,
     atomic_private_write,
     policy_snapshot as _shared_policy_snapshot,
     private_directory,
@@ -46,6 +46,14 @@ STATUSES = {"pending", "draft", "active", "rejected", "unclear", "inactive"}
 
 class UserSkillsError(UserRulesError):
     """Raised when private skill storage or policy evidence is invalid."""
+
+
+def _account_binding(project):
+    """Resolve the account binding through the skills API error boundary."""
+    try:
+        return _user_rules_account_binding(project)
+    except UserRulesError as error:
+        raise UserSkillsError(str(error)) from error
 
 
 def storage_root(project):

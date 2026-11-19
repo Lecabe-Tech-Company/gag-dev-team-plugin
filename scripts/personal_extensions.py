@@ -126,7 +126,17 @@ def _read_receipt(root: Path, extension_id: str, digest: str):
     directory = root / "extensions" / extension_id / "versions" / digest
     if any(path.is_symlink() for path in (directory, *directory.parents)):
         raise PersonalExtensionError("The extension version is unsafe.")
-    receipt = json.loads((directory / "receipt.json").read_text(encoding="utf-8"))
+    receipt_path = directory / "receipt.json"
+    if receipt_path.is_symlink() or not receipt_path.is_file() or receipt_path.stat().st_size > 262144:
+        raise PersonalExtensionError("The extension receipt is unsafe or exceeds its size limit.")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError) as error:
+        raise PersonalExtensionError("The extension receipt is unreadable or corrupt.") from error
+    if (not isinstance(receipt, dict) or not isinstance(receipt.get("source"), dict)
+            or not isinstance(receipt.get("files"), dict) or not receipt["files"]
+            or any(not isinstance(name, str) or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest) for name, digest in receipt["files"].items())):
+        raise PersonalExtensionError("The extension receipt does not match its required structure.")
     files = receipt["files"]
     bundle_root = directory / "bundle"
     actual_files = set()
@@ -146,11 +156,30 @@ def _read_receipt(root: Path, extension_id: str, digest: str):
         path = directory / "bundle" / name
         if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise PersonalExtensionError("A personal extension file was altered.")
+    if receipt.get("digest") != digest or receipt.get("extension_id") != extension_id:
+        raise PersonalExtensionError("The extension receipt does not match its immutable reference.")
+    if receipt.get("kind") == "skill":
+        from user_skills import _parse_frontmatter
+        name, _description, _body = _parse_frontmatter((bundle_root / "SKILL.md").read_text(encoding="utf-8"))
+        if receipt.get("name") != name or extension_id != "personal-" + name:
+            raise PersonalExtensionError("The skill receipt does not match its reviewed manifest.")
+    elif receipt.get("kind") == "plugin":
+        manifest_path = next((bundle_root / name for name in ("plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json") if name in files), None)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path else {}
+        name = manifest.get("name") if isinstance(manifest, dict) else None
+        target = receipt.get("target")
+        if (not isinstance(name, str) or not SLUG.fullmatch(name) or name.startswith("gag-dev-team")
+                or not isinstance(target, str) or not TARGET.fullmatch(target) or target.split("@", 1)[0] != name
+                or receipt.get("name") != name or extension_id != "personal-plugin-" + name
+                or receipt.get("version") != manifest.get("version")):
+            raise PersonalExtensionError("The plugin receipt does not match its reviewed manifest.")
+    else:
+        raise PersonalExtensionError("The extension receipt has an unsupported bundle kind.")
     return directory, receipt
 
 
-def stage_skill(binding: dict, source: dict, files: dict, home: Path | None = None):
-    """Persist inert Markdown only; review must precede project activation."""
+def validate_source(binding: dict, source: dict):
+    """Require bounded, credential-free provenance on the authenticated GitHub host."""
     if (not isinstance(source, dict) or set(source) - {"provider", "host", "repository", "path", "ref", "commit"}
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", str(source.get("repository", "")))
             or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("commit", "")))):
@@ -163,6 +192,14 @@ def stage_skill(binding: dict, source: dict, files: dict, home: Path | None = No
         selected = source.get(field, "")
         if not isinstance(selected, str) or len(selected) > 300 or any(character in selected for character in ("\0", "\n", "\r", "@", ":", "\\")):
             raise PersonalExtensionError("The skill source path or ref is unsafe.")
+    source_path = PurePosixPath(source.get("path", "."))
+    if source_path.is_absolute() or ".." in source_path.parts:
+        raise PersonalExtensionError("The repository-relative source path is unsafe.")
+
+
+def stage_skill(binding: dict, source: dict, files: dict, home: Path | None = None):
+    """Persist inert Markdown only; review must precede project activation."""
+    validate_source(binding, source)
     if not isinstance(files, dict) or "SKILL.md" not in files or len(files) > 30:
         raise PersonalExtensionError("A skill must include SKILL.md and a bounded reference bundle.")
     encoded = {}
@@ -192,14 +229,14 @@ def stage_skill(binding: dict, source: dict, files: dict, home: Path | None = No
     return receipt
 
 
-def download_skill(binding: dict, repository: str, path: str, ref: str = "HEAD", home: Path | None = None):
+def download_extension(binding: dict, repository: str, path: str, ref: str = "HEAD", home: Path | None = None, kind="skill", target=None):
     """Resolve a GitHub ref, download bounded bytes, and stage inert skill sources."""
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise PersonalExtensionError("Provide an explicit GitHub owner/repository.")
     if any(part in {".", ".."} for part in repository.split("/")):
         raise PersonalExtensionError("The repository source is invalid.")
     relative = PurePosixPath(path)
-    if relative.is_absolute() or ".." in relative.parts or "\\" in path or not relative.parts:
+    if relative.is_absolute() or ".." in relative.parts or "\\" in path or (not relative.parts and kind != "plugin"):
         raise PersonalExtensionError("Provide a safe repository-relative skill path.")
     if not ref or len(ref) > 200 or ref.startswith("-"):
         raise PersonalExtensionError("The requested repository ref is invalid.")
@@ -214,6 +251,7 @@ def download_skill(binding: dict, repository: str, path: str, ref: str = "HEAD",
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         raise PersonalExtensionError("GitHub skill download failed; verify source access and authentication.") from error
     files = {}
+    total_bytes = 0
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as package:
             for entry in package.infolist():
@@ -226,14 +264,25 @@ def download_skill(binding: dict, repository: str, path: str, ref: str = "HEAD",
                 name = selected.relative_to(relative).as_posix()
                 if ".." in components or "\\" in entry.filename or (entry.external_attr >> 16) & 0o170000 == 0o120000:
                     raise PersonalExtensionError("The selected skill includes an unsafe archive entry.")
-                if entry.file_size > 65536 or sum(len(value.encode("utf-8")) for value in files.values()) + entry.file_size > 65536:
+                total_bytes += entry.file_size
+                maximum = 65536 if kind == "skill" else MAX_ARCHIVE_BYTES
+                if entry.file_size > maximum or total_bytes > maximum or len(files) >= 1000:
                     raise PersonalExtensionError("The selected skill exceeds its size limit.")
                 if name in files:
                     raise PersonalExtensionError("The skill archive contains duplicate entries.")
-                files[name] = package.read(entry).decode("utf-8")
+                content = package.read(entry)
+                files[name] = content.decode("utf-8") if kind == "skill" else content
     except (zipfile.BadZipFile, UnicodeError) as error:
         raise PersonalExtensionError("The downloaded skill archive is invalid.") from error
-    return stage_skill(binding, {"provider": "github", "host": host, "repository": repository, "path": path, "ref": ref, "commit": commit}, files, home)
+    source = {"provider": "github", "host": host, "repository": repository, "path": path, "ref": ref, "commit": commit}
+    if kind == "plugin":
+        from native_extensions import stage_plugin
+        return stage_plugin(binding, source, files, target, home)
+    return stage_skill(binding, source, files, home)
+
+
+def download_skill(binding: dict, repository: str, path: str, ref: str = "HEAD", home: Path | None = None):
+    return download_extension(binding, repository, path, ref, home)
 
 
 def review_extension(binding: dict, extension_id: str, digest: str, review: dict, home: Path | None = None):
@@ -252,6 +301,8 @@ def activate_skill(binding: dict, extension_id: str, digest: str, home: Path | N
     from environment_projection import read_snapshot
     root = profile_root(binding["user"], home)
     _directory, receipt = _read_receipt(root, extension_id, digest)
+    if receipt.get("kind") != "skill":
+        raise PersonalExtensionError("Native plugin bundles require a verified native adapter, not skill activation.")
     snapshot = read_snapshot(binding)
     matches = [item for item in snapshot["extensions"] if item.get("extension_id", item.get("id")) == extension_id and item.get("digest") == digest]
     if not matches or matches[-1].get("state") != "reviewed" or matches[-1].get("review", {}).get("policy_digest") != policy_snapshot()["policy_digest"]:
@@ -265,19 +316,9 @@ def load_personal_skill(binding: dict, extension_id: str, digest: str, home: Pat
     if not matches or matches[-1].get("state") != "active" or matches[-1].get("review", {}).get("policy_digest") != policy_snapshot()["policy_digest"]:
         raise PersonalExtensionError("The personal extension is inactive or its mandatory-policy review is stale.")
     directory, receipt = _read_receipt(profile_root(binding["user"], home), extension_id, digest)
+    if receipt.get("kind") != "skill":
+        raise PersonalExtensionError("Native plugin bundles cannot be loaded as personal skills.")
     return {"namespace": extension_id, "files": {name: (directory / "bundle" / name).read_text(encoding="utf-8") for name in receipt["files"]}, "priority": "below-mandatory-plugin-policy"}
-
-
-def _native_directory(harness, home):
-    selected_home = Path(home or Path.home())
-    variable = "CODEX_HOME" if harness == "codex" else "CLAUDE_CONFIG_DIR"
-    default = selected_home / (".codex" if harness == "codex" else ".claude")
-    directory = Path(os.environ.get(variable, default)) if home is None else default
-    directory = Path(os.path.abspath(directory))
-    for ancestor in (directory, *directory.parents):
-        if ancestor.is_symlink() or (ancestor / ".git").exists():
-            raise PersonalExtensionError("The native user profile must be outside versionable repositories and symbolic links.")
-    return directory
 
 
 def _retain_native_bundle(profile, native_root, extension_id, target, harness, native_result):
@@ -330,58 +371,6 @@ def _retain_native_bundle(profile, native_root, extension_id, target, harness, n
 
 
 def install_native_plugin(binding: dict, target: str, harness: str, review: dict, runner=subprocess.run, home: Path | None = None):
-    """Delegate trust to supported native clients; never infer activation."""
-    if not TARGET.fullmatch(target):
-        raise PersonalExtensionError("Provide an explicit plugin@marketplace target.")
-    if target.split("@", 1)[0].lower().startswith("gag-dev-team"):
-        raise PersonalExtensionError("Personal installations cannot replace the mandatory GAG Dev Team plugin.")
-    if review.get("decision") != "accept" or review.get("policy_digest") != policy_snapshot()["policy_digest"] or not review.get("reason") or not review.get("reviewer"):
-        raise PersonalExtensionError("A current mandatory-policy compatibility review is required.")
-    if not all(isinstance(review.get(key), str) and 1 <= len(review[key]) <= 1000 for key in ("reviewer", "reason")):
-        raise PersonalExtensionError("Native plugin review requires a reviewer and compatibility rationale.")
-    if harness == "codex":
-        command = ["codex", "plugin", "add", target, "--json"]
-    elif harness == "claude":
-        command = ["claude", "plugin", "install", target, "--scope", "user", "--json"]
-    else:
-        raise PersonalExtensionError("This host has no verified user-scoped native plugin adapter.")
-    extension_id = "personal-" + target.replace("@", "-").replace("_", "-").replace(".", "-").lower()
-    source = {"target": target, "harness": harness}
-    from event_store import _validate_payload
-    _validate_payload(binding, {"event_type": "extension.discovered", "data": {"extension_id": extension_id, "kind": "plugin", "source": source, "review": review}}, None)
-    profile = profile_root(binding["user"], home)
-    native_root = _native_directory(harness, home)
-    provenance = {"target": target, "harness": harness, "review": review, "content_management": "native-host", "activation_verified": False}
-    provenance_digest = hashlib.sha256(_canonical(provenance)).hexdigest()
-    _publish(profile / "extensions" / extension_id / "versions" / provenance_digest / "native-receipt.json", _canonical(provenance))
-    append_event(binding, {"event_type": "extension.discovered", "data": {"extension_id": extension_id, "kind": "plugin", "name": target, "source": source, "state": "requested", "review": review}})
-    if not shutil.which(command[0]):
-        state = "pending_host"
-    else:
-        retained = None
-        try:
-            result = runner(command, capture_output=True, timeout=120, check=False)
-            # Native successful installation does not prove this running session loaded it.
-            state = "pending_verification" if result.returncode == 0 else "failed"
-            try:
-                native_result = json.loads(result.stdout)
-                if isinstance(native_result, dict) and native_result.get("status") in {"pending_auth", "pending_trust", "pending_restart"}:
-                    state = native_result["status"]
-                if result.returncode == 0:
-                    retained = _retain_native_bundle(profile, native_root, extension_id, target, harness, native_result)
-                    if retained is None:
-                        state = "pending_verification"
-                    elif state == "pending_verification":
-                        state = "pending_restart"
-            except (ValueError, TypeError):
-                pass
-        except subprocess.TimeoutExpired:
-            state = "pending_verification"
-        except OSError:
-            state = "failed"
-        except PersonalExtensionError:
-            state = "failed"
-    details = {"extension_id": extension_id, "kind": "plugin", "name": target, "source": source, "state": state, "review": review, "digest": provenance_digest, "content_management": "native-host", "activation_verified": False}
-    if 'retained' in locals() and retained:
-        details.update(retained)
-    return append_event(binding, {"event_type": "extension.installed" if state == "pending_restart" else "extension.failed", "data": details})
+    """Use immutable reviewed source and an account-bound active native profile."""
+    from native_extensions import install_plugin
+    return install_plugin(binding, target, harness, review, runner, home)

@@ -212,7 +212,7 @@ def _project_extensions(events: list[dict]) -> list[dict]:
         "extension.activated": "active", "extension.failed": "failed",
         "extension.deactivated": "deactivated", "extension.removed": "deactivated",
     }
-    allowed_states = {"requested", "rejected", "pending_host", "pending_auth_or_trust", "pending_auth", "pending_trust", "pending_restart", "pending_verification", "pending_review", "reviewed", "installed", "active", "failed", "deactivated", "discovered", "downloaded", "unknown"}
+    allowed_states = {"requested", "rejected", "pending_profile", "pending_host", "pending_auth_or_trust", "pending_auth", "pending_trust", "pending_restart", "pending_verification", "pending_review", "reviewed", "installed", "active", "failed", "deactivated", "discovered", "downloaded", "unknown"}
     for event in events:
         if not event.get("event_type", "").startswith("extension."):
             continue
