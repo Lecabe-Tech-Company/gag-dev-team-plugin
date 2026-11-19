@@ -83,7 +83,7 @@ Siga o fluxo compartilhado de worktree, branch e PRs. Valide os critérios do SD
 
 O dev não cria nem altera testes, fixtures ou auxiliares específicos dos testes da demanda. A autoria e manutenção pertence ao Revisor / QA, conforme a skill sdd-qa. O dev pode executar testes existentes para diagnóstico, informar cenários e dependências impactados e corrigir os defeitos no código da aplicação demonstrados pelo QA, preservando a separação das responsabilidades.
 
-Coordene o repasse no mesmo worktree/branch para evitar alterações concorrentes. Antes de enviar PRs, confira com o QA que os testes da feature e dos fluxos relacionados foram executados no estado final da branch, com resultados e evidências. Não envie com essa validação pendente ou falhando.
+Coordene o repasse no mesmo worktree/branch para evitar alterações concorrentes. Antes do PR, confira com o QA que todos os testes novos ou alterados para a feature passaram no estado final; teste da feature pendente, omitido ou falhando impede o envio. Verificações dos fluxos relacionados devem ser executadas e relatadas separadamente conforme o impacto. Falhas comprovadamente preexistentes nesses fluxos não bloqueiam a feature nem exigem correção do legado; regressão causada pela alteração é defeito da feature e deve ser corrigida e coberta. Registre resultados e evidências; mudança posterior exige repetir as verificações afetadas.
 
 ## Idioma do código
 

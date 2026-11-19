@@ -127,3 +127,25 @@ class LifecycleTests(ProjectCase):
                 payload = self.invoke(harness, "PreToolUse", self.native_event(harness))
                 self.assertFalse(self.is_denied(payload, harness))
                 analyze.assert_called_once_with(request, "/fake/graphify")
+
+    def test_session_context_distributes_feature_acceptance_without_claiming_test_execution(self):
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            with self.subTest(harness=harness), patch.object(self.hook, "update_project", return_value={"updated": False}), patch.object(self.hook.check_scripta, "inspect_access", return_value="token"):
+                payload = self.invoke(harness, "SessionStart", {})
+                text = json.dumps(payload, ensure_ascii=False).casefold()
+                self.assertRegex(text, r"testes (?:implementados|novos ou alterados).{0,120}feature")
+                self.assertIn("preexist", text)
+                self.assertIn("não executa", text)
+                self.assertIn("graphify", text)
+                self.assertNotIn("falhas ou validação obrigatória pendente impedem o envio", text)
+
+    def test_graphify_failure_message_does_not_restore_a_legacy_suite_veto(self):
+        for harness in ("codex", "claude", "cursor", "antigravity"):
+            with self.subTest(harness=harness), patch.object(self.hook.graphify_hook, "pr_request", return_value={"fixture": "recognized-pr"}), patch.object(self.hook.graphify_hook, "ensure_graphify", return_value="/fake/graphify"), patch.object(self.hook.graphify_hook, "analyze_pr", side_effect=RuntimeError("fixture graph analysis failure")):
+                payload = self.invoke(harness, "PreToolUse", self.native_event(harness))
+                self.assertTrue(self.is_denied(payload, harness))
+                text = json.dumps(payload, ensure_ascii=False).casefold()
+                self.assertIn("graphify", text)
+                self.assertNotIn("testes da feature e dos fluxos relacionados antes da abertura", text)
+                self.assertNotIn("testes foram executados", text)
+                self.assertNotIn("testes foram aprovados", text)

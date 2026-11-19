@@ -119,7 +119,7 @@ def main():
         print(json.dumps(deny(str(error), harness), ensure_ascii=True))
     except Exception:
         record_gate_failure(project, event, harness)
-        print(json.dumps(deny("PR bloqueado: conclua a análise Graphify e os testes da feature e dos fluxos relacionados antes da abertura.", harness)))
+        print(json.dumps(deny("PR bloqueado: não foi possível concluir a análise Graphify do hook. O hook não executa testes; confirme os testes da feature e relate separadamente as verificações dos fluxos relacionados conforme o SDD.", harness)))
 
 
 if __name__ == "__main__":

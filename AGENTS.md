@@ -36,7 +36,7 @@ Este repositório fonte oficial usa `master`: crie worktree a partir de `origin/
 
 - O Revisor / QA implementa e mantém os testes da demanda, seguindo a skill [sdd-qa](skills/sdd-qa/SKILL.md). O dev não cria nem altera testes; ele implementa/corrige a aplicação e pode executar testes existentes.
 - Testes devem cobrir cenários relevantes para segurança, qualidade e regressão, sem enfraquecer verificações para obter verde.
-- Antes de enviar qualquer PR, execute os testes da feature e dos fluxos relacionados no estado final da branch e confira as evidências. Falhas ou validação obrigatória pendente impedem o envio.
+- Antes do PR, todos os testes novos ou alterados para a feature devem passar no estado final; teste da feature pendente, omitido ou falhando impede o envio. Execute e relate em separado verificações dos fluxos relacionados conforme o impacto. Falhas relacionadas comprovadamente preexistentes devem ser informadas, mas não bloqueiam esta feature nem exigem correção de legado. Regressão causada pela alteração é defeito da feature e deve ser corrigida e coberta.
 
 - Use a skill caveman por padrão em toda solicitação/resposta, preservando português, dados técnicos e instruções explícitas. Respeite stop caveman/normal mode. Não comprima SDDs, documentação, código ou outros artefatos persistidos.
 

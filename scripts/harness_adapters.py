@@ -62,6 +62,7 @@ def guidance():
         "fala nem trate falha/ausência/corrupção do registro como revogação do aceite real. Confirmação terminal "
         "exige ação direta da pessoa e não representa fala original. O hook de prompt não classifica nem aprova "
         "texto. Dev e orquestrador usam o advisor; QA escreve os testes.\n"
+        "Critério de liberação: todos os testes novos ou alterados para a feature devem passar na revisão final; teste da feature pendente, omitido ou falhando impede o envio. Execute e relate separadamente verificações dos fluxos relacionados conforme o impacto. Falhas relacionadas comprovadamente preexistentes são informadas, mas não bloqueiam esta feature nem exigem correção do legado. Regressão causada pela alteração é defeito da feature e deve ser corrigida e coberta. Este hook não executa nem valida resultados de testes.\n"
         "Código e nomes de arquivos de código devem ser em inglês: classes, métodos, funções, variáveis, "
         "propriedades, parâmetros, constantes, namespaces e demais identificadores técnicos. "
         "Planejamento, SDD, documentação e acompanhamento podem ser em português. "
