@@ -46,6 +46,21 @@ class PersonalExtensionTests(EnvironmentCase):
         self.assertEqual(self.git("diff", "--cached", "--name-only"), "")
 
     def test_retries_versions_and_deactivation_preserve_all_prior_bytes(self):
+        long_slug = "long-" + "a" * 59
+        self.assertEqual(len(long_slug), 64)
+        with self.subTest(kind="skill", slug_length=64):
+            long_files = {**self.files, "SKILL.md": self.files["SKILL.md"].replace("interview-helper", long_slug)}
+            long_receipt = self.stage(long_files)
+            long_before = self.history_bytes()
+            self.assertEqual(self.stage(long_files), long_receipt)
+            self.assertEqual(self.history_bytes(), long_before)
+        with self.subTest(kind="plugin", slug_length=64):
+            manifest = {"plugin.json": json.dumps({"name": long_slug, "version": "1.0.0"})}
+            target = long_slug + "@example"
+            long_receipt = self.native.stage_plugin(self.binding, self.source, manifest, target, home=self.fake_home)
+            long_before = self.history_bytes()
+            self.assertEqual(self.native.stage_plugin(self.binding, self.source, manifest, target, home=self.fake_home), long_receipt)
+            self.assertEqual(self.history_bytes(), long_before)
         first = self.stage()
         before = self.history_bytes()
         self.assertEqual(self.stage()["digest"], first["digest"])

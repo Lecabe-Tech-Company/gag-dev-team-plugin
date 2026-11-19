@@ -225,7 +225,8 @@ def stage_skill(binding: dict, source: dict, files: dict, home: Path | None = No
         for path, content in encoded.items():
             _publish(directory / "bundle" / path, content)
         _publish(directory / "receipt.json", _canonical(receipt))
-    append_event(binding, {"event_type": "extension.downloaded", "data": {**receipt, "state": "downloaded"}}, f"download-{extension_id}-{digest}")
+    event_id = "download-" + hashlib.sha256((extension_id + ":" + digest).encode("utf-8")).hexdigest()
+    append_event(binding, {"event_type": "extension.downloaded", "data": {**receipt, "state": "downloaded"}}, event_id)
     return receipt
 
 

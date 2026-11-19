@@ -429,6 +429,9 @@ class EnglishGateTests(unittest.TestCase):
                     self.analyze()
 
     def test_workflow_yaml_and_english_run_identifiers_are_allowed(self):
+        with self.subTest(style="inline"):
+            self.commit({".github/workflows/inline.yml": "jobs:\n  build:\n    steps:\n      - run: runtime_path=node\n"})
+            self.analyze()
         self.commit({".github/workflows/build.yml": "name: Build\non: push\njobs:\n  build:\n"
                                                    "    runs-on: ubuntu-latest\n    steps:\n      - run: |\n"
                                                    "          runtime_path='node'\n          printf '%s\\n' \"$runtime_path\"\n"})
@@ -436,6 +439,8 @@ class EnglishGateTests(unittest.TestCase):
 
     def test_yaml_portuguese_keys_run_variables_and_invalid_graphs_are_blocked(self):
         cases = ("quantidade: 1\n",
+                 "jobs:\n  build:\n    steps:\n      - run: quantidade=1\n",
+                 "jobs:\n  build:\n    steps:\n      - run: >\n          runtime_path=node\n",
                  "jobs:\n  build:\n    steps:\n      - run: |\n          quantidade=1\n          printf '%s' \"$quantidade\"\n",
                  "jobs: [\n",
                  "settings: &settings\n  child: *settings\n")

@@ -62,7 +62,8 @@ def stage_plugin(binding, source, files, target, home=None):
         for filename, content in encoded.items():
             _publish(directory / "bundle" / filename, content)
         _publish(directory / "receipt.json", _canonical(receipt))
-    append_event(binding, {"event_type": "extension.downloaded", "data": {**receipt, "state": "downloaded"}}, "download-" + extension_id + "-" + digest)
+    event_id = "download-" + hashlib.sha256((extension_id + ":" + digest).encode("utf-8")).hexdigest()
+    append_event(binding, {"event_type": "extension.downloaded", "data": {**receipt, "state": "downloaded"}}, event_id)
     return receipt
 
 

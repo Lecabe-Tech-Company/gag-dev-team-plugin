@@ -33,6 +33,9 @@ TECHNICAL_WORDS = {
     "lifecycle", "sigterm", "executables",
     # Python standard-library contracts and the exact external npm package name.
     "getpid", "base64", "b64encode", "sha512", "lightningcss",
+    # SVG/React DOM contracts and the canonical Iconsax free icon name.
+    "svg", "svgsvg", "linecap", "linejoin", "focusable", "magicpen",
+    "describedby",  # Standard aria-describedby accessibility attribute.
     # Standard-library, operating-system, Git, and skill-format contracts.
     "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
     "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",
@@ -215,11 +218,14 @@ def _parse_tree_sitter_request():
                             seen.add(key.value)
                             identifiers.append({"line": key.start_mark.line + 1, "name": key.value})
                             if key.value == "run" and isinstance(value, yaml.ScalarNode):
+                                if value.style != "|" and (value.end_mark.line > value.start_mark.line or "\n" in value.value):
+                                    raise ValueError("multiline workflow commands require literal block syntax")
+                                first_line = value.start_mark.line + (2 if value.style == "|" else 1)
                                 def replace_expression(match):
                                     expression = match.group(1).strip()
                                     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+", expression):
                                         raise ValueError("unsupported workflow expression")
-                                    identifiers.append({"line": value.start_mark.line + value.value.count("\n", 0, match.start()) + 2, "name": expression})
+                                    identifiers.append({"line": first_line + value.value.count("\n", 0, match.start()), "name": expression})
                                     return "workflow_expression"
                                 shell_source = re.sub(r"\$\{\{(.*?)\}\}", replace_expression, value.value)
                                 shell_tree = shell_parser.parse(shell_source.encode("utf-8"))
@@ -229,7 +235,7 @@ def _parse_tree_sitter_request():
                                 while nodes:
                                     node = nodes.pop()
                                     if node.type in {"variable_name", "function_name"}:
-                                        identifiers.append({"line": value.start_mark.line + node.start_point.row + 2, "name": node.text.decode("utf-8")})
+                                        identifiers.append({"line": first_line + node.start_point.row, "name": node.text.decode("utf-8")})
                                     nodes.extend(node.children)
                             pending.append(value)
                     elif isinstance(current, yaml.SequenceNode):

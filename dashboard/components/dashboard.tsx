@@ -1,6 +1,8 @@
 "use client";
 
 import { Children, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Icon, type IconName } from "./icons";
+import { formatExtensionSource, type ExtensionSource } from "../lib/formatting";
 
 type Snapshot = {
   schema_version: number;
@@ -15,7 +17,7 @@ type Snapshot = {
   sessions: Array<{ id: string; started_at?: string; ended_at?: string | null; agent_id?: string | null }>;
   issues: Array<{ id: string; status: string; category?: string | null; severity?: string | null; attribution?: string | null; summary: string; opened_at?: string; updated_at?: string; causes?: string[]; attempt_ids?: string[]; model?: ModelInfo | null }>;
   models: Array<ModelInfo & { attempt_count?: number | null; issue_count?: number | null; confirmed_model_issue_count?: number | null }>;
-  extensions: Array<{ id: string; extension_id?: string; name?: string; kind?: string; state: string; version?: string; source?: string }>;
+  extensions: Array<{ id: string; extension_id?: string; name?: string; kind?: string; state: string; version?: string; source?: ExtensionSource | null }>;
   diagnostics: string[];
   events: Array<{
     event_id: string;
@@ -56,14 +58,30 @@ type FilterValues = {
 };
 
 const initialFilters: FilterValues = { period: "30d", from: "", to: "", model: "", category: "", status: "" };
+const navigationItems = [
+  { id: "overview", label: "Visão geral", icon: "home-2" },
+  { id: "personal-context", label: "Regras e skills", icon: "book" },
+  { id: "activity", label: "Atividade", icon: "activity" },
+  { id: "models", label: "Modelos", icon: "cpu" },
+  { id: "extensions", label: "Extensões", icon: "hierarchy-2" },
+] as const satisfies Array<{ id: string; label: string; icon: IconName }>;
+type DashboardSection = typeof navigationItems[number]["id"];
+const statusOptions = [
+  "active", "inactive", "open", "resolved", "corrected", "pending", "pending_review", "pending_profile",
+  "pending_verification", "pending_host", "pending_auth_or_trust", "pending_auth", "pending_trust", "pending_restart",
+  "reviewed", "installed", "failed", "deactivated", "discovered", "downloaded", "requested", "rejected", "stale", "draft", "unknown",
+];
 
 export default function Dashboard() {
   const [token, setToken] = useState("");
   const [health, setHealth] = useState<Health | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [filters, setFilters] = useState(initialFilters);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [filterError, setFilterError] = useState("");
+  const [activeSection, setActiveSection] = useState<DashboardSection>("overview");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -73,6 +91,18 @@ export default function Dashboard() {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
     setReady(true);
+  }, []);
+
+  useEffect(() => {
+    function syncActiveSection() {
+      const fragment = window.location.hash.slice(1);
+      const matchingItem = navigationItems.find((item) => item.id === fragment);
+      setActiveSection(matchingItem?.id ?? "overview");
+    }
+
+    syncActiveSection();
+    window.addEventListener("hashchange", syncActiveSection);
+    return () => window.removeEventListener("hashchange", syncActiveSection);
   }, []);
 
   const loadSnapshot = useCallback(async (accessToken: string, currentFilters: FilterValues) => {
@@ -111,6 +141,7 @@ export default function Dashboard() {
 
       setHealth(verifiedHealth);
       setSnapshot(data);
+      setCategoryOptions((current) => [...new Set([...current, ...data.events.map((item) => item.category).filter((value): value is string => Boolean(value))])].sort());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os dados.");
     } finally {
@@ -133,16 +164,23 @@ export default function Dashboard() {
   );
 
   function updateFilter(name: keyof FilterValues, value: string) {
+    setFilterError("");
     setFilters((current) => ({ ...current, [name]: value }));
   }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (token) void loadSnapshot(token, filters);
+    if (filters.from && filters.to && filters.from > filters.to) {
+      setFilterError("A data inicial deve ser anterior ou igual à data final.");
+      return;
+    }
+
+    setFilterError("");
+    if (token) void loadSnapshot(token, toRequestFilters(filters));
   }
 
   function refresh() {
-    if (token) void loadSnapshot(token, filters);
+    if (token) void loadSnapshot(token, toRequestFilters(filters));
   }
 
   if (!ready) return <main className="loading-shell" aria-label="Carregando painel" />;
@@ -155,11 +193,7 @@ export default function Dashboard() {
           <span><strong>GAG Dev Team</strong><small>Ambiente pessoal</small></span>
         </a>
         <nav className="main-nav" aria-label="Navegação principal">
-          <a className="nav-link active" href="#overview"><span>⌂</span> Visão geral</a>
-          <a className="nav-link" href="#personal-context"><span>◇</span> Regras e skills</a>
-          <a className="nav-link" href="#activity"><span>◷</span> Atividade</a>
-          <a className="nav-link" href="#models"><span>⌁</span> Modelos</a>
-          <a className="nav-link" href="#extensions"><span>↗</span> Extensões</a>
+          {navigationItems.map((item) => <a className={`nav-link${activeSection === item.id ? " active" : ""}`} href={`#${item.id}`} aria-label={item.label} aria-current={activeSection === item.id ? "location" : undefined} title={item.label} key={item.id}><Icon name={item.icon} /> <span>{item.label}</span></a>)}
         </nav>
         <div className="sidebar-bottom">
           <span className="local-indicator"><i /> Execução local</span>
@@ -169,10 +203,10 @@ export default function Dashboard() {
 
       <div className="content-area">
         <header className="topbar">
-          <div className="breadcrumb"><span>Workspace</span><b>/</b><strong>Ambiente pessoal</strong></div>
+          <div className="breadcrumb"><span>Projeto local</span><b>/</b><strong>Ambiente pessoal</strong></div>
           <div className="topbar-actions">
-            <span className="privacy-label"><span>◉</span> Privado neste dispositivo</span>
-            <button className="icon-button" type="button" onClick={refresh} disabled={!token || loading} aria-label="Atualizar dados">↻</button>
+            <span className="privacy-label"><Icon name="shield-security" size={15} /> Privado neste dispositivo</span>
+            <button className="icon-button" type="button" onClick={refresh} disabled={!token || loading} aria-label="Atualizar dados"><Icon name="refresh-circle" size={17} /></button>
             <div className="avatar" aria-label="Conta GitHub">GH</div>
           </div>
         </header>
@@ -192,7 +226,7 @@ export default function Dashboard() {
           {!token && <div className="loading-state"><div><strong>Aguardando acesso ao ambiente</strong><p>O painel só exibe dados depois de confirmar o link local seguro.</p></div></div>}
 
           <section className="environment-card" aria-label="Resumo do ambiente">
-            <div className="environment-icon">⌘</div>
+            <div className="environment-icon"><Icon name="code-circle" size={24} /></div>
             <div className="environment-copy">
               <span className="section-kicker">AMBIENTE ATUAL</span>
               <h2>{snapshot?.environment?.host ?? "Repositório local"}</h2>
@@ -207,24 +241,25 @@ export default function Dashboard() {
           </section>
 
           <form className="filter-panel" onSubmit={applyFilters}>
-            <div className="filter-heading"><div><strong>Filtrar atividade</strong><span>Período, modelo e categoria filtram eventos; status também limita listas. O contexto pessoal mostra o estado atual.</span></div><button className="text-button" type="button" onClick={() => { setFilters(initialFilters); if (token) void loadSnapshot(token, initialFilters); }}>Limpar filtros</button></div>
+            <div className="filter-heading"><div><strong className="filter-title"><Icon name="filter" size={17} /> Filtrar atividade</strong><span>Período, modelo e categoria filtram eventos; status também limita listas. O contexto pessoal mostra o estado atual.</span></div><button className="text-button" type="button" onClick={() => { setFilters(initialFilters); setFilterError(""); if (token) void loadSnapshot(token, initialFilters); }}>Limpar filtros</button></div>
             <div className="filter-grid">
               <label>Período<select value={filters.period} onChange={(event) => updateFilter("period", event.target.value)}><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="all">Todo o histórico</option></select></label>
-              <label>De<input type="date" value={filters.from} onChange={(event) => updateFilter("from", event.target.value)} /></label>
-              <label>Até<input type="date" value={filters.to} onChange={(event) => updateFilter("to", event.target.value)} /></label>
+              <label>De<input type="date" value={filters.from} onChange={(event) => updateFilter("from", event.target.value)} aria-invalid={Boolean(filterError)} aria-describedby={filterError ? "date-filter-error" : undefined} /></label>
+              <label>Até<input type="date" value={filters.to} onChange={(event) => updateFilter("to", event.target.value)} aria-invalid={Boolean(filterError)} aria-describedby={filterError ? "date-filter-error" : undefined} /></label>
               <label>Modelo<input value={filters.model} onChange={(event) => updateFilter("model", event.target.value)} placeholder="Qualquer modelo" maxLength={256} /></label>
-              <label>Categoria<input value={filters.category} onChange={(event) => updateFilter("category", event.target.value)} placeholder="Todas" maxLength={256} /></label>
-              <label>Status<input value={filters.status} onChange={(event) => updateFilter("status", event.target.value)} placeholder="Todos" maxLength={256} /></label>
+              <label>Categoria<select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}><option value="">Todas</option>{categoryOptions.map((category) => <option value={category} key={category}>{displayValue(category)}</option>)}</select></label>
+              <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">Todos</option>{statusOptions.map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}</select></label>
               <button className="button-primary filter-submit" type="submit" disabled={!token || loading}>{loading ? "Carregando…" : "Aplicar filtros"}</button>
             </div>
+            {filterError && <p className="filter-error" id="date-filter-error" role="alert">{filterError}</p>}
           </form>
 
           {loading && !snapshot ? <DashboardSkeleton /> : snapshot ? <>
             <div className="metric-grid" aria-label="Indicadores do ambiente">
-              <MetricCard label="Regras pessoais" value={snapshot.rules.length} note="Ativas e históricas" icon="◇" tone="violet" />
-              <MetricCard label="Skills pessoais" value={snapshot.skills.length} note="Catálogo deste usuário" icon="✳" tone="blue" />
-              <MetricCard label="Sessões em andamento" value={activeSessionCount} note={`${snapshot.sessions.length} registradas`} icon="◷" tone="green" />
-              <MetricCard label="Eventos de problemas" value={issueEvents.length} note="Até 200 itens da consulta" icon="!" tone="orange" />
+              <MetricCard label="Regras pessoais" value={snapshot.rules.length} note="Ativas e históricas" icon="book" tone="violet" />
+              <MetricCard label="Skills pessoais" value={snapshot.skills.length} note="Catálogo deste usuário" icon="magic-pen" tone="blue" />
+              <MetricCard label="Sessões em andamento" value={activeSessionCount} note={`${snapshot.sessions.length} registradas`} icon="activity" tone="green" />
+              <MetricCard label="Eventos de problemas" value={issueEvents.length} note="Até 200 itens da consulta" icon="warning-2" tone="orange" />
             </div>
 
             <div className="section-grid" id="personal-context">
@@ -249,7 +284,7 @@ export default function Dashboard() {
               <Panel title="Linha do tempo de problemas" subtitle="Aberturas, resoluções e correções · até 200 eventos" count={issueEvents.length}>
                 <RecordList empty="Nenhum evento de problema encontrado nos filtros selecionados.">
                   {issueEvents.slice(0, 8).map((event) => <div className="issue-row" key={event.event_id}>
-                    <span className={`severity-mark ${toneForSeverity(event.severity)}`}>!</span>
+                    <span className={`severity-mark ${toneForSeverity(event.severity)}`}><Icon name="warning-2" size={14} /></span>
                     <div className="record-main"><div className="record-title-line"><strong>{event.summary || eventTypeLabel(event.event_type)}</strong><StatusBadge status={event.event_type} /></div><span>{[displayValue(event.category), displayValue(event.attribution), event.model ? modelName(event.model) : null].filter(Boolean).join(" · ") || "Sem classificação adicional"}</span></div>
                     <time>{formatDate(event.recorded_at)}</time>
                   </div>)}
@@ -265,7 +300,7 @@ export default function Dashboard() {
 
             <section className="panel extensions-panel" id="extensions">
               <div className="panel-header"><div><h2>Extensões pessoais</h2><p>Plugins e skills disponíveis no perfil local</p></div><span className="panel-count">{snapshot.extensions.length} itens</span></div>
-              {snapshot.extensions.length === 0 ? <EmptyState>Nenhuma extensão pessoal registrada.</EmptyState> : <div className="extension-list">{snapshot.extensions.map((extension) => <div className="extension-row" key={extension.id}><span className="extension-icon">{extension.kind === "plugin" ? "◈" : "✳"}</span><div className="record-main"><strong>{extension.name ?? extension.extension_id ?? extension.id}</strong><span>{[displayValue(extension.kind), extension.version, displayValue(extension.source)].filter(Boolean).join(" · ")}</span></div><StatusBadge status={extension.state} /></div>)}</div>}
+              {snapshot.extensions.length === 0 ? <EmptyState>Nenhuma extensão pessoal registrada.</EmptyState> : <div className="extension-list">{snapshot.extensions.map((extension) => <div className="extension-row" key={extension.id}><span className="extension-icon"><Icon name={extension.kind === "plugin" ? "command" : "magic-pen"} size={17} /></span><div className="record-main"><strong>{extension.name ?? extension.extension_id ?? extension.id}</strong><span>{[displayValue(extension.kind), extension.version, formatExtensionSource(extension.source)].filter(Boolean).join(" · ")}</span></div><StatusBadge status={extension.state} /></div>)}</div>}
             </section>
 
             {snapshot.diagnostics.length > 0 && <section className="diagnostics-panel"><strong>Observações do ambiente</strong>{snapshot.diagnostics.map((diagnostic, index) => <p key={`${diagnostic}-${index}`}>{diagnostic}</p>)}</section>}
@@ -278,8 +313,8 @@ export default function Dashboard() {
   );
 }
 
-function MetricCard({ label, value, note, icon, tone }: { label: string; value: number; note: string; icon: string; tone: string }) {
-  return <article className="metric-card"><span className={`metric-icon ${tone}`}>{icon}</span><span className="metric-label">{label}</span><strong>{value}</strong><small>{note}</small></article>;
+function MetricCard({ label, value, note, icon, tone }: { label: string; value: number; note: string; icon: IconName; tone: string }) {
+  return <article className="metric-card"><span className={`metric-icon ${tone}`}><Icon name={icon} size={18} /></span><span className="metric-label">{label}</span><strong>{value}</strong><small>{note}</small></article>;
 }
 
 function Panel({ title, subtitle, count, children }: { title: string; subtitle: string; count: number; children: ReactNode }) {
@@ -296,19 +331,16 @@ function RecordRow({ title, subtitle, status, date }: { title: string; subtitle:
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
-  const tone = /active|ativo|resolved|resolvido|concluída|installed|instalado/.test(normalized)
-    ? "success"
-    : /pending|pendente|review|revisão|running|andamento|unknown|desconhecida/.test(normalized)
-      ? "warning"
-      : /failed|failed|erro|error|blocked|recusado/.test(normalized)
-        ? "danger"
-        : "neutral";
+  const successStates = new Set(["active", "resolved", "corrected", "completed", "installed", "ativo", "resolvido", "corrigido", "concluída", "instalado"]);
+  const warningStates = new Set(["pending", "pending_review", "pending_profile", "pending_verification", "pending_host", "pending_auth", "pending_trust", "pending_auth_or_trust", "pending_restart", "stale", "draft", "discovered", "requested", "running", "pendente", "desconhecido"]);
+  const dangerStates = new Set(["failed", "rejected", "tampered", "erro", "error", "blocked", "recusado", "falhou"]);
+  const tone = successStates.has(normalized) ? "success" : warningStates.has(normalized) ? "warning" : dangerStates.has(normalized) ? "danger" : "neutral";
 
   return <span className={`status-badge ${tone}`}>{statusLabel(status)}</span>;
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="empty-state"><span>⌕</span><p>{children}</p></div>;
+  return <div className="empty-state"><Icon name="search-normal" size={18} /><p>{children}</p></div>;
 }
 
 function DashboardSkeleton() {
@@ -341,6 +373,7 @@ function statusLabel(status: string): string {
     discovered: "Descoberta", requested: "Solicitada", rejected: "Recusada", pending_host: "Aguardando cliente",
     "pending_auth": "Aguardando autenticação", "pending_trust": "Aguardando confiança", "pending_auth_or_trust": "Aguardando autenticação ou confiança",
     "pending_restart": "Aguardando reinício", "pending_authorization": "Aguardando autorização",
+    "pending_profile": "Aguardando perfil", "pending_verification": "Aguardando verificação", "pending_review": "Aguardando revisão",
     stale: "Revisão desatualizada", tampered: "Integridade comprometida", draft: "Rascunho",
     "issue.opened": "Aberto", "issue.resolved": "Resolvido", "issue.corrected": "Corrigido",
     "in progress": "Em andamento",
@@ -364,6 +397,22 @@ function displayValue(value?: string | null): string | null {
     declared: "Declarado", unknown: "Desconhecido", plugin: "Plugin", skill: "Skill",
   };
   return knownValues[value.toLowerCase()] ?? value;
+}
+
+function toRequestFilters(values: FilterValues): FilterValues {
+  return {
+    ...values,
+    from: values.from ? localDateBoundary(values.from, false) : "",
+    to: values.to ? localDateBoundary(values.to, true) : "",
+  };
+}
+
+function localDateBoundary(value: string, endOfDay: boolean): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = endOfDay
+    ? new Date(year, month - 1, day, 23, 59, 59, 999)
+    : new Date(year, month - 1, day, 0, 0, 0, 0);
+  return date.toISOString();
 }
 
 function toneForSeverity(severity?: string | null): string {
