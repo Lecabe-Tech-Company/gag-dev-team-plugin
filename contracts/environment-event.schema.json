@@ -15,6 +15,8 @@
     "event_type": {
       "enum": [
         "identity.observed", "session.started", "session.ended", "attempt.recorded",
+        "goal.started", "goal.ended", "goal.agent.linked", "goal.agent.unlinked",
+        "token.source.registered", "token.source.synced", "token.usage.observed", "token.usage.attribution.corrected",
         "rule.versioned", "rule.deactivated", "skill.versioned", "skill.deactivated",
         "issue.opened", "issue.resolved", "issue.corrected", "legacy.imported",
         "extension.discovered", "extension.downloaded", "extension.reviewed", "extension.installed",

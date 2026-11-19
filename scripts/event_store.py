@@ -24,6 +24,8 @@ EVENT_TYPES = {
     "identity.observed", "session.started", "session.ended", "attempt.recorded",
     "rule.versioned", "rule.deactivated", "skill.versioned", "skill.deactivated",
     "issue.opened", "issue.resolved", "issue.corrected",
+    "goal.started", "goal.ended", "goal.agent.linked", "goal.agent.unlinked",
+    "token.source.registered", "token.source.synced", "token.usage.observed", "token.usage.attribution.corrected",
     "extension.discovered", "extension.downloaded", "extension.reviewed",
     "extension.installed", "extension.activated", "extension.deactivated",
     "extension.failed", "extension.updated", "extension.removed", "legacy.imported",
@@ -198,7 +200,7 @@ def _validate_payload(binding: dict, payload: dict, event_id: str | None) -> tup
         raise EventStoreError("Event summaries must be concise single-line descriptions, not process output.")
     if not isinstance(data, dict):
         raise EventStoreError("Event data must be a JSON object.")
-    operational_event = event_type.startswith(("session.", "attempt.", "issue.", "extension."))
+    operational_event = event_type.startswith(("session.", "attempt.", "issue.", "extension.", "goal.", "token."))
 
     def reject_sensitive_keys(value, depth=0):
         if depth > 16:

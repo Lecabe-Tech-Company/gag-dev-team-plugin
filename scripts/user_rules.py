@@ -29,6 +29,7 @@ POLICY_FILES = (
     "skills/ensure-dashboard/SKILL.md",
     "skills/record-agent-issue/SKILL.md",
     "skills/install-user-extension/SKILL.md",
+    "skills/track-token-usage/SKILL.md",
     "skills/sdd-development/SKILL.md",
     "skills/sdd-planning/SKILL.md",
     "skills/sdd-qa/SKILL.md",

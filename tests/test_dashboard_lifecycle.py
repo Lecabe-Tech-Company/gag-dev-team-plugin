@@ -6,11 +6,13 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sys
 import threading
 from unittest import mock
 
 from environment_fixtures import EnvironmentCase
+from test_project_cli import ROOT
 
 
 SERVER_SOURCE = r'''
@@ -44,6 +46,8 @@ class DashboardLifecycleTests(EnvironmentCase):
         dashboard.mkdir(parents=True)
         (self.plugin / "package.json").write_text('{"version":"0.5.0"}', encoding="utf-8")
         (dashboard / "package-lock.json").write_text('{"lockfileVersion":3}', encoding="utf-8")
+        shutil.copytree(ROOT / "scripts", self.plugin / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         self.npm = self.fake_home / "fake-npm.py"
         self.npm.write_text(
             "from pathlib import Path\nimport sys\n"
@@ -58,6 +62,13 @@ class DashboardLifecycleTests(EnvironmentCase):
         runtime = Path(self.binding["runtime_root"]) / "dashboard"
         for path in runtime.glob("builds/*/starts.log"):
             self.process_ids.update(int(line) for line in path.read_text().splitlines())
+        collector_path = runtime / "collector.json"
+        if collector_path.is_file():
+            collector = json.loads(collector_path.read_text())
+            if collector.get("project_id") == self.binding["project_id"]:
+                process_id = collector.get("pid")
+                if isinstance(process_id, int) and process_id > 0 and process_id != os.getpid():
+                    self.process_ids.add(process_id)
         for process_id in self.process_ids:
             try:
                 os.kill(process_id, signal.SIGTERM)

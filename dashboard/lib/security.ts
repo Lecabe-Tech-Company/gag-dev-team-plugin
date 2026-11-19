@@ -7,6 +7,8 @@ const allowedFilterNames = new Set([
   "from",
   "to",
   "model",
+  "goal_id",
+  "agent_id",
   "category",
   "status",
   "cursor",

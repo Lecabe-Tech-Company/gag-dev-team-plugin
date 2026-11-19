@@ -204,6 +204,20 @@ def _revision(events: list[dict]) -> str:
     return hashlib.sha256("\n".join(identifiers).encode("utf-8")).hexdigest()
 
 
+def _public_event(event: dict) -> dict:
+    """Remove local paths and raw rollout identifiers from dashboard event output."""
+    result = dict(event)
+    data = result.get("data")
+    if result.get("event_type", "").startswith("token."):
+        for field in ("session_id", "attempt_id", "task_id"):
+            result[field] = None
+    if isinstance(data, dict):
+        private_keys = {"source_root", "thread_id", "session_id", "turn_id", "root_turn_id",
+                        "response_id", "source_key_digest"}
+        result["data"] = {key: value for key, value in data.items() if key not in private_keys}
+    return result
+
+
 def _project_extensions(events: list[dict]) -> list[dict]:
     latest = {}
     default_states = {
@@ -249,7 +263,7 @@ def _project_extensions(events: list[dict]) -> list[dict]:
 def read_snapshot(binding: dict, filters: dict | None = None) -> dict:
     """Replay scoped events into stable dashboard sections without writing history."""
     filters = filters or {}
-    allowed_filters = {"from", "to", "event_type", "category", "model", "period", "status", "limit", "cursor"}
+    allowed_filters = {"from", "to", "event_type", "category", "model", "period", "status", "limit", "cursor", "goal_id", "agent_id"}
     if not isinstance(filters, dict) or set(filters) - allowed_filters:
         raise EventStoreError("The snapshot filter set is invalid.")
     period_filter = filters.get("period")
@@ -267,7 +281,7 @@ def read_snapshot(binding: dict, filters: dict | None = None) -> dict:
                 raise EventStoreError(f"Snapshot {name} filter must be an ISO 8601 timestamp.") from error
             if parsed.tzinfo is None:
                 raise EventStoreError(f"Snapshot {name} filter must include a timezone.")
-    for name in ("event_type", "category", "model", "status", "cursor"):
+    for name in ("event_type", "category", "model", "status", "cursor", "goal_id", "agent_id"):
         value = filters.get(name)
         if value is not None and not isinstance(value, str):
             raise EventStoreError(f"Snapshot {name} filter must be text.")
@@ -311,6 +325,13 @@ def read_snapshot(binding: dict, filters: dict | None = None) -> dict:
         issues = [item for item in issues if item.get("status") == status_filter]
         extensions = [item for item in extensions if item.get("state") == status_filter]
     models = _project_models(events, issues)
+    try:
+        from token_usage import usage_snapshot
+    except ModuleNotFoundError:
+        from scripts.token_usage import usage_snapshot
+    usage_filters = {key: value for key, value in filters.items()
+                     if key in {"period", "from", "to", "model", "goal_id", "agent_id"}}
+    token_usage = usage_snapshot(binding, usage_filters, full_events)
     latest_identity = next((event for event in reversed(full_events) if event.get("event_type") == "identity.observed"), None)
     try:
         metadata = json.loads((Path(__file__).resolve().parents[1] / "plugin.json").read_text(encoding="utf-8"))
@@ -348,8 +369,9 @@ def read_snapshot(binding: dict, filters: dict | None = None) -> dict:
         "sessions": sessions,
         "issues": issues,
         "models": models,
+        "token_usage": token_usage,
         "extensions": extensions,
         "diagnostics": [],
-        "events": displayed,
+        "events": [_public_event(event) for event in displayed],
         "next_cursor": next_cursor,
     }

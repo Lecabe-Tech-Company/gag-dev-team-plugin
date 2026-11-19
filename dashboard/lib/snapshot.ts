@@ -20,7 +20,8 @@ export async function readSnapshot(
   const args = ["-X", "utf8", scriptPath, "environment", "snapshot", "--bound"];
 
   for (const [name, value] of Object.entries(filters)) {
-    args.push(`--${name}`, value);
+    const flagName = name === "goal_id" ? "goal-id" : name === "agent_id" ? "agent-id" : name;
+    args.push(`--${flagName}`, value);
   }
 
   const output = await runPython(pythonExecutable, args, pluginRoot, JSON.stringify(binding));

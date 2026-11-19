@@ -33,9 +33,13 @@ TECHNICAL_WORDS = {
     "lifecycle", "sigterm", "executables",
     # Python standard-library contracts and the exact external npm package name.
     "getpid", "base64", "b64encode", "sha512", "lightningcss",
-    # SVG/React DOM contracts and the canonical Iconsax free icon name.
-    "svg", "svgsvg", "linecap", "linejoin", "focusable", "magicpen",
+    # Exact SVG/HTML and agent-kind contract vocabulary.
+    "svg", "svgsvg", "linecap", "linejoin", "focusable", "magicpen", "h3", "orchestrator", "subagent",
     "describedby",  # Standard aria-describedby accessibility attribute.
+    # Exact Windows environment keys, Python stat field, and backend link state.
+    "userprofile", "localappdata", "ino", "unlinked",
+    # Exact ctypes and Win32 SDK type/function signature contracts.
+    "argtypes", "byref", "ctypes", "dll", "dword", "restype", "wintypes",
     # Standard-library, operating-system, Git, and skill-format contracts.
     "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
     "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",
