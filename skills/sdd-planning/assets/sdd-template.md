@@ -28,4 +28,4 @@ Oriente a implementação: abordagem, reaproveitamento do código existente, seq
 
 Relacione cada critério às evidências necessárias, ao procedimento de coleta e ao resultado esperado. Registre depois o resultado verificado e as pendências; não apresente evidências planejadas como já coletadas.
 
-A implementação dos testes cabe ao Revisor / QA. As evidências devem incluir a execução dos testes da feature e dos fluxos relacionados no estado final da branch, antes dos PRs, com comandos, revisão testada, resultados e pendências.
+A implementação dos testes cabe ao Revisor / QA. Antes do PR, todos os testes novos ou alterados para a feature devem passar no estado final. Execute e relate separadamente os testes dos fluxos relacionados conforme o impacto; falhas comprovadamente preexistentes são informadas, mas não bloqueiam a feature nem exigem correção do legado. Regressões introduzidas pela alteração pertencem à feature, devem ser corrigidas e cobertas. Registre comandos, revisão testada, resultados, evidências e pendências.

@@ -54,11 +54,11 @@ Se não houver testes necessários para um fluxo relacionado, implemente a cober
 
 ## Executar antes de enviar PR
 
-Antes de enviar qualquer PR para stage ou prod, execute os testes da feature em desenvolvimento **e** dos fluxos relacionados no estado final da branch. Use os comandos e o ambiente de teste previstos pelo projeto, conferindo o isolamento do banco e das integrações.
+Antes do PR, execute no estado final todos os testes novos ou alterados para a feature. Todos devem passar; teste da feature não descoberto, pendente, omitido, skipped/incomplete ou falhando significa que o critério não foi atendido. Confira descoberta, comandos e ambiente, inclusive isolamento do banco e integrações.
 
-A execução deve ocorrer depois da última alteração relevante. Registre a revisão/estado testado; se o código ou os testes mudarem depois, repita os conjuntos afetados e a cobertura relacionada. Resultados de outra revisão, código ainda não testado ou execução apenas dos testes novos não satisfazem a regra.
+Execute também as verificações dos fluxos relacionados conforme o impacto e relate seus resultados em separado; elas não são declaradas aprovadas por estarem verdes as da feature. Falha relacionada bloqueia a feature somente quando há evidência de que foi introduzida pela alteração ou quando sua causa não pode ser distinguida de uma regressão da feature. Falha comprovadamente preexistente deve ser registrada com evidência, sem exigir correção do legado nesta demanda. Se a alteração causar regressão, QA a cobre como teste da feature e o dev corrige antes do envio.
 
-Confira se os testes esperados foram de fato descobertos e executados. Zero testes, filtro que exclui cenários obrigatórios, skipped/incomplete relevantes, erro de ambiente ou falha não equivalem a aprovação. Não recomende nem envie o PR enquanto essa validação obrigatória estiver pendente ou falhando.
+A execução obrigatória deve ocorrer depois da última alteração relevante. Registre a revisão/estado testado; se código ou testes mudarem depois, repita conjuntos afetados e a cobertura relacionada. Resultados de outra revisão não aprovam os testes da feature. Não recomende nem envie PR enquanto qualquer teste da feature estiver pendente ou falhando.
 
 ## Entregar o resultado da revisão
 

@@ -139,7 +139,7 @@ O dev não implementa nem altera testes da demanda; essa responsabilidade é do 
 
 O QA deve implementar cenários reais e distintos do fluxo, derivados do SDD e das regras de negócio, para verificar segurança e qualidade. Não crie testes só para passar nem enfraqueça assertions, ignore falhas ou adapte expectativas a bugs. Passar é consequência do bom desenvolvimento e da validação adequada.
 
-Antes de enviar qualquer PR para stage ou prod, rode e confira os testes da feature em desenvolvimento e dos fluxos relacionados, após a última alteração relevante. Mapeie impactos com Graphify e Scripta; registre a revisão testada, os comandos, os cenários selecionados, os resultados e as pendências. Se houver mudança posterior, repita a validação afetada. Execução pendente, falhando ou sem os cenários obrigatórios impede o envio.
+Antes de enviar qualquer PR para stage ou prod, rode e confira no estado final todos os testes novos ou alterados para a feature: todos devem passar, e teste pendente ou omitido impede o envio. Mapeie impactos com Graphify e Scripta; execute e relate também as verificações pertinentes dos fluxos relacionados, separando seus resultados. Falha relacionada comprovadamente preexistente deve ser informada, mas não bloqueia esta feature nem exige corrigir legado; regressão introduzida pela alteração integra a feature e precisa ser corrigida e coberta. Registre a revisão testada, os comandos, os cenários, os resultados e as pendências. Se houver mudança posterior, repita a validação afetada.
 
 A checagem Graphify existente não substitui testes nem verifica seus resultados automaticamente; o fluxo de QA e o orquestrador devem executar e conferir essa validação antes da abertura.
 

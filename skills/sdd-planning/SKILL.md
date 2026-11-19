@@ -46,7 +46,7 @@ Quando relevante ao volume e ao risco, explicite a complexidade de tempo e memó
 
 Planeje a implementação dos testes como responsabilidade do Revisor / QA, separada da implementação da aplicação pelo dev. Nos Critérios de Aceite e nas Evidências, relacione cenários do fluxo e riscos concretos de segurança/qualidade; o objetivo dos testes é detectar defeitos e verificar contratos, não apenas passar.
 
-A execução dos testes da feature e dos fluxos relacionados é obrigatória antes de enviar qualquer PR para stage/prod. Inclua sua identificação, revisão testada, comandos/resultados e pendências nas evidências. Mudanças posteriores exigem repetir a validação afetada. O orquestrador não considera a entrega apta para PR se essa verificação estiver faltando ou falhando.
+Antes de PR, todos os testes novos ou alterados para a feature devem passar no estado final; teste da feature pendente, omitido ou falhando impede o envio. Execute e relate também os testes dos fluxos relacionados conforme o impacto, em resultados separados. Falhas relacionadas comprovadamente preexistentes devem ser informadas, mas não bloqueiam esta feature nem exigem correção de legado. Um defeito introduzido pela alteração é regressão da feature e deve ser corrigido e coberto. Inclua nas evidências comandos, revisão testada, resultados e pendências; mudanças posteriores exigem repetir a validação afetada.
 
 ## Idioma do código
 
