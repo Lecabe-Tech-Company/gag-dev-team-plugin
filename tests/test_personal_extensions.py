@@ -152,7 +152,7 @@ class PersonalExtensionTests(EnvironmentCase):
         self.assertEqual(result["event"]["data"]["state"], "pending_verification")
         runner.assert_not_called()
 
-    def test_native_unreviewed_or_stale_policy_source_never_calls_installer(self):
+    def test_native_missing_review_or_stale_policy_source_never_calls_installer(self):
         receipt = self.native.stage_plugin(self.binding, self.source,
             {"plugin.json": '{"name":"helper","version":"1.2.3"}'}, "helper@example", home=self.fake_home)
         reference = {"extension_id": receipt["extension_id"], "content_digest": receipt["digest"]}
