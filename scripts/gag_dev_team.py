@@ -153,6 +153,12 @@ def main(argv=None):
     from releases import install_latest, update_project
     from sdd_gate import declare_sdd, approve_sdd, record_sdd_approval
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "environment":
+        from environment_cli import run_environment_cli
+        return run_environment_cli(arguments[1:])
+    if arguments and arguments[0] == "extensions":
+        from extension_cli import run_extension_cli
+        return run_extension_cli(arguments[1:])
     if arguments and arguments[0] == "rules":
         return run_user_rules_cli(arguments[1:])
     if arguments and arguments[0] == "skills":

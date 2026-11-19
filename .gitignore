@@ -7,6 +7,8 @@
 
 # Dependencias e artefatos gerados
 node_modules/
+.next/
+*.tsbuildinfo
 .venv/
 __pycache__/
 dist/

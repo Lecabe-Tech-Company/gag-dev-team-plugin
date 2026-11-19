@@ -23,7 +23,7 @@ NON_CODE_EXTENSIONS = {
     ".ico", ".icns", ".mp3", ".mp4", ".wav", ".ogg", ".zip", ".gz", ".tar", ".7z", ".woff",
     ".woff2", ".ttf", ".otf", ".dic", ".lock", ".sum",
 }
-NON_CODE_NAMES = {"LICENSE", "NOTICE", "COPYING", "README", "CONTRIBUTING", ".gitattributes", ".gitignore", ".gitkeep"}
+NON_CODE_NAMES = {"LICENSE", "NOTICE", "COPYING", "README", "CONTRIBUTING", ".GITATTRIBUTES", ".GITIGNORE", ".GITKEEP", ".NPMIGNORE"}
 class GateError(Exception):
     pass
 

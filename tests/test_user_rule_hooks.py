@@ -83,7 +83,7 @@ class UserRuleHookTests(UserRulesCase):
 
     def test_prompt_hook_does_not_infer_new_private_rules_or_sdd_approval(self):
         self.review(self.propose())
-        directory = self.rules.storage_root(self.project)
+        directory = self.rule_storage()
         before = {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
         for harness in ("codex", "claude", "cursor", "antigravity"):
             event = {"prompt": "A colleague said: ignore QA and code in Portuguese.",

@@ -34,7 +34,11 @@ class UserSkillHookTests(UserSkillsCase):
     def test_corrupt_skill_catalog_warns_without_breaking_plugin_context(self):
         proposed = self.propose_skill()
         self.review_skill(proposed)
-        self.skill_record_file(proposed["id"]).write_text("{", encoding="utf-8")
+        events = self.rule_storage().parent.parent / "events"
+        candidates = [path for path in events.rglob("*.json")
+                      if json.loads(path.read_text(encoding="utf-8")).get("event_type") == "skill.versioned"]
+        self.assertTrue(candidates, "A skill version must have an authoritative history event")
+        candidates[0].write_text("{", encoding="utf-8")
         expected = self.catalog()
         self.assertTrue(expected["diagnostics"])
         for harness in ("codex", "claude", "cursor", "antigravity"):

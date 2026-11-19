@@ -23,9 +23,8 @@ def build_release(root, destination, tag):
     destination.mkdir(parents=True, exist_ok=True)
     artifact = destination / ("gag-dev-team-plugin-" + tag + ".zip")
     files = []
-    for directory in ("agents", "skills", "hooks", "scripts", "ui", "mcp", "bin"):
-        files.extend(p for p in (root / directory).rglob("*")
-                     if p.is_file() and "__pycache__" not in p.parts and p.name != ".gitkeep")
+    from distribution_files import distributed_files
+    files.extend(distributed_files(root))
     files.extend(root / name for name in ("package.json", "plugin.json", "mcp.json", "README.md"))
     with zipfile.ZipFile(artifact, "w", compression=zipfile.ZIP_DEFLATED) as package:
         for path in sorted(files):

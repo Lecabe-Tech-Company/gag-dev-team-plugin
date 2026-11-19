@@ -13,6 +13,7 @@ from user_rules import context_for as user_rule_context
 from user_skills import catalog_for as user_skill_catalog
 import check_scripta
 import graphify_hook
+from environment_hooks import session_context, record_gate_failure
 
 
 def context(message, harness):
@@ -49,6 +50,7 @@ def main():
         if not isinstance(project, str) or not project:
             messages.append("The active project path is unavailable; no private project rules or user skills were applied.")
         else:
+            messages.append(session_context(project, event, harness))
             try:
                 messages.append(user_rule_context(project, ROOT)["context"])
             except Exception:
@@ -76,6 +78,7 @@ def main():
             print(json.dumps({"decision": "stop"} if harness == "antigravity" else {}))
             return
         messages = [guidance()]
+        messages.append(session_context(project, event, harness))
         try:
             messages.append(user_rule_context(project, ROOT)["context"])
         except Exception:
@@ -112,8 +115,10 @@ def main():
             return
         print("{}")
     except graphify_hook.GateError as error:
+        record_gate_failure(project, event, harness)
         print(json.dumps(deny(str(error), harness), ensure_ascii=True))
     except Exception:
+        record_gate_failure(project, event, harness)
         print(json.dumps(deny("PR bloqueado: conclua a análise Graphify e os testes da feature e dos fluxos relacionados antes da abertura.", harness)))
 
 

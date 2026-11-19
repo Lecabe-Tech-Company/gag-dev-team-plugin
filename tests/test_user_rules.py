@@ -48,8 +48,19 @@ class UserRulesCase(ProjectCase):
     def effective(self, project=None):
         return self.rules.effective_rules(project or self.project, plugin_root=self.runtime)
 
+    def rule_storage(self, project=None):
+        identity = importlib.import_module("environment_identity")
+        binding = identity.project_binding(project or self.project, identity.resolve_identity())
+        return Path(binding["runtime_root"]) / "rules"
+
+    def immutable_bytes(self):
+        root = self.rule_storage().parent.parent
+        return {str(path.relative_to(root)): path.read_bytes()
+                for directory in (root / "events", root / "versions")
+                for path in directory.rglob("*") if path.is_file()}
+
     def record_file(self, rule_id):
-        for path in self.rules.storage_root(self.project).rglob("*.json"):
+        for path in self.rule_storage().rglob("*.json"):
             if rule_id in path.read_text(encoding="utf-8"):
                 return path
         self.fail("No private JSON record contains the synthetic rule identifier")
@@ -76,8 +87,10 @@ class UserRuleStorageTests(UserRulesCase):
     def test_storage_is_inside_common_git_metadata_and_cannot_be_staged(self):
         proposed = self.propose()
         expected = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir"))
-        storage = self.rules.storage_root(self.project)
-        self.assertEqual(storage, expected / "gag-dev-team/user-rules")
+        storage = self.rule_storage()
+        binding = importlib.import_module("environment_identity").project_binding(
+            self.project, importlib.import_module("environment_identity").resolve_identity())
+        self.assertEqual(storage, Path(binding["runtime_root"]) / "rules")
         self.assertTrue(storage.is_relative_to(expected))
         self.assertFalse(storage.is_relative_to(self.project / ".gag-dev-team"))
         self.git("add", ".")
@@ -239,15 +252,16 @@ class UserRuleReviewTests(UserRulesCase):
     def test_manual_content_edit_invalidates_the_bound_review(self):
         proposed = self.propose()
         self.review(proposed)
+        before = self.immutable_bytes()
         for replacement in ("Tampered synthetic private content " + uuid.uuid4().hex, "\ud800"):
             with self.subTest(replacement=repr(replacement)):
                 self.edit_record(proposed["rule"]["id"], content=replacement)
                 result = self.effective()
-                self.assertEqual(result["rules"], [])
-                self.assertTrue(result["diagnostics"])
+                self.assertEqual([item["content"] for item in result["rules"]], [self.content])
                 context = self.rules.context_for(self.project, plugin_root=self.runtime)
                 self.assertNotIn(replacement, context["context"])
-                self.assertNotIn(self.content, context["context"])
+                self.assertIn(self.content, context["context"])
+                self.assertEqual(self.immutable_bytes(), before)
 
     def test_symlinked_registry_does_not_read_or_modify_an_external_file(self):
         proposed = self.propose()
@@ -323,15 +337,16 @@ class UserRuleReviewTests(UserRulesCase):
     def test_corrupt_and_oversized_registry_never_become_effective_context(self):
         proposed = self.propose()
         self.review(proposed)
+        before = self.immutable_bytes()
         path = self.record_file(proposed["rule"]["id"])
         for content in ("{", " " * (self.rules.MAX_STATE_BYTES + 1)):
             with self.subTest(size=len(content)):
                 path.write_text(content, encoding="utf-8")
                 effective = self.effective()
-                self.assertEqual(effective["rules"], [])
-                self.assertTrue(effective["diagnostics"])
+                self.assertEqual([item["content"] for item in effective["rules"]], [self.content])
                 context = self.rules.context_for(self.project, plugin_root=self.runtime)
-                self.assertNotIn(self.marker, context["context"])
+                self.assertIn(self.content, context["context"])
+                self.assertEqual(self.immutable_bytes(), before)
 
     def test_rule_size_limit_counts_utf8_bytes_and_preserves_previous_state(self):
         valid = "é" * (self.rules.MAX_RULE_BYTES // 2)

@@ -26,13 +26,13 @@ Compatível com **Codex, Claude Code, Cursor e Antigravity**. Escolha um ou vár
 
 Peça ao agente para guardar uma regra particular usando a skill `manage-user-rules`. Ela compara sua regra com as políticas do plugin e ativa somente regras compatíveis. Regras conflitantes ficam inativas, com explicação; elas não podem dispensar SDD, QA ou os gates do PR.
 
-O conteúdo fica em `<git-common-dir>/gag-dev-team/user-rules/`, nos metadados locais do repositório e fora da árvore versionável. Não depende apenas de `.gitignore`: não é um arquivo da árvore que possa entrar normalmente em um commit. Worktrees compartilham esse armazenamento; outro clone não recebe suas regras por `clone` ou `pull`.
+Na implementação do ambiente pessoal, o armazenamento atual é separado pela conta GitHub autenticada (host e ID numérico) e pelo projeto, dentro dos metadados locais do Git, fora da árvore versionável. Worktrees do mesmo repositório compartilham o armazenamento; clones independentes não o recebem por `clone` ou `pull`. Os caminhos compartilhados da v0.4 continuam como legado preservado, sem associação automática a uma conta. Só importe legado após confirmação explícita de titularidade; regras importadas passam por nova revisão contra as políticas vigentes.
 
 A skill aplica o conjunto aceito na conversa atual; novas sessões o recuperam pelos hooks. Atualizações preservam os dados. Edições manuais ou mudanças nas políticas exigem nova revisão. A análise de compatibilidade de texto é contextual, feita pelo agente; hashes e estados locais detectam revisões inválidas, sem fingir que resolvem a semântica sozinhos.
 
 ## Skills particulares e personalização
 
-Use `manage-user-skills` para criar uma skill particular do projeto. Ela fica em `<git-common-dir>/gag-dev-team/user-skills/`, com SKILL.md e referências textuais. Os hooks mostram um catálogo privado; o agente lê o conteúdo quando ele é pertinente. Esse catálogo tem namespace próprio e não substitui as skills do plugin nem promete aparecer em seletores nativos dos editores.
+Use `manage-user-skills` para criar uma skill particular do projeto. O catálogo atual usa armazenamento separado pela conta GitHub autenticada e pelo projeto, com versões imutáveis e cache de runtime privado. Os hooks mostram um catálogo privado; o agente lê o conteúdo quando pertinente. Skills pessoais nunca substituem as skills ou políticas do plugin. Caminhos compartilhados da v0.4 são legado preservado, não um catálogo atual nem automaticamente associado a uma conta.
 
 O agente também pode sugerir e criar rascunhos a partir de padrões da tarefa: seu modo de acompanhar o trabalho, dúvidas recorrentes, erros evitáveis e perguntas que ajudam a completar o SDD. Preferências explícitas podem ser consolidadas após revisão; hipóteses inferidas continuam inativas até esclarecimento. Uma ocorrência isolada não vira regra permanente.
 
@@ -40,7 +40,13 @@ As skills preservam as obrigações do plugin, os sete subtítulos e o aceite do
 
 ## Instalação
 
-Tenha **Git**, **Node.js 18+ com npm** e **Python 3.11+** instalados. Abra o terminal na pasta do seu projeto Git.
+O plugin inclui um dashboard Next.js local para regras, skills, sessões, problemas, modelos e extensões pessoais. Peça ao agente para abrir o acompanhamento; a skill `ensure-dashboard` verifica ou inicia o serviço e informa sua URL protegida. O dashboard requer Node.js 20.9+ com npm e usa somente loopback. A autenticação da conta usa GitHub CLI (`gh auth login`); tokens nunca são enviados ao navegador.
+
+O histórico JSON é imutável e separado por host e ID numérico GitHub nos metadados locais do Git. Correções e desativações adicionam eventos; nenhum registro histórico é apagado. Dados legados compartilhados exigem declaração explícita de titularidade antes da associação. Métricas cobrem somente tentativas e problemas registrados, com origem configurada/declarada/observada/desconhecida do modelo; não representam todas as chamadas LLM.
+
+Pedidos claros de instalação de plugins ou skills pessoais usam `install-user-extension`: versões e proveniência ficam no perfil privado da máquina, fora de Git, e cada projeto mantém suas referências. Toda ativação depende de compatibilidade com as regras obrigatórias do plugin. Instalação nativa pode depender de trust, autenticação ou reinício; o agente informa o estado real.
+
+Tenha **Git**, **Node.js 18+ com npm** e **Python 3.11+** instalados. O dashboard local requer **Node.js 20.9+**. Abra o terminal na pasta do seu projeto Git.
 
 No Windows (CMD ou PowerShell), Linux ou macOS:
 

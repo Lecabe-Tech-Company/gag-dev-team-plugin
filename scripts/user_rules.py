@@ -20,12 +20,15 @@ MAX_CONTEXT_CHARS = 6000
 MAX_STATE_BYTES = 524288
 MAX_REVIEWER_CHARS = 120
 MAX_REASON_CHARS = 1000
-RULE_STATUSES = {"pending", "active", "rejected", "unclear"}
+RULE_STATUSES = {"pending", "active", "rejected", "unclear", "inactive"}
 POLICY_FILES = (
     "scripts/harness_adapters.py",
     "skills/development-workflow/SKILL.md",
     "skills/manage-user-rules/SKILL.md",
     "skills/manage-user-skills/SKILL.md",
+    "skills/ensure-dashboard/SKILL.md",
+    "skills/record-agent-issue/SKILL.md",
+    "skills/install-user-extension/SKILL.md",
     "skills/sdd-development/SKILL.md",
     "skills/sdd-planning/SKILL.md",
     "skills/sdd-qa/SKILL.md",
@@ -84,7 +87,7 @@ def _existing_symlink(path):
 
 def private_storage_root(project, namespace):
     """Return a safe namespaced directory in Git common metadata."""
-    if namespace not in {"user-rules", "user-skills"}:
+    if namespace not in {"user-rules", "user-skills", "users"}:
         raise UserRulesError("The requested private metadata namespace is not supported.")
     try:
         project_path = Path(project).expanduser().resolve(strict=True)
@@ -247,11 +250,93 @@ def _ensure_directory(directory):
             raise UserRulesError("The private user-rules storage permissions cannot be secured.")
 
 
-def _paths(project, create=False):
-    directory = storage_root(project)
+def _paths(project, create=False, binding=None):
+    binding = binding or _account_binding(project)
+    directory = Path(binding["runtime_root"]) / "rules"
     if create:
         _ensure_directory(directory)
     return directory, directory / "state.json", directory / ".lock"
+
+
+def _account_binding(project):
+    try:
+        from environment_identity import project_binding, resolve_identity
+    except ModuleNotFoundError:
+        from scripts.environment_identity import project_binding, resolve_identity
+    try:
+        return project_binding(project, resolve_identity())
+    except UserRulesError:
+        raise
+    except Exception as error:
+        raise UserRulesError("The authenticated account could not be bound to this private project.") from error
+
+
+def _ensure_account_directory(directory, root):
+    directory, root = Path(directory), Path(root)
+    try:
+        relative = directory.relative_to(root)
+    except ValueError as error:
+        raise UserRulesError("The private rule history path escapes its account project root.") from error
+    current = root
+    if _existing_symlink(current) or not current.is_dir():
+        raise UserRulesError("The private rule history root is unsafe.")
+    for part in relative.parts:
+        current = current / part
+        if _existing_symlink(current):
+            raise UserRulesError("The private rule history path contains a symbolic link.")
+        try:
+            current.mkdir(mode=0o700, exist_ok=True)
+        except OSError as error:
+            raise UserRulesError("The private rule history directory cannot be created safely.") from error
+        if _existing_symlink(current) or not current.is_dir():
+            raise UserRulesError("The private rule history directory is unsafe.")
+        if os.name != "nt":
+            os.chmod(current, 0o700)
+
+
+def _record_rule_version(binding, record, event_type="rule.versioned"):
+    encoded = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = _digest(encoded)
+    record_id = str(uuid.UUID(record["id"]))
+    versions_root = Path(binding["versions_root"])
+    rules_root = versions_root / "rules"
+    version_root = rules_root / record_id
+    _ensure_account_directory(version_root, Path(binding["private_root"]))
+    version_path = version_root / f"{digest}.json"
+    if _existing_symlink(version_path):
+        raise UserRulesError("The private rule version file is unsafe.")
+    if version_path.exists():
+        if version_path.read_bytes() != encoded:
+            raise UserRulesError("An immutable private rule version exists with different bytes.")
+    else:
+        temporary = version_root / f".{digest}.pending"
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        except FileExistsError:
+            descriptor = None
+        if descriptor is not None:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, version_path)
+            except FileExistsError:
+                pass
+            finally:
+                temporary.unlink(missing_ok=True)
+    try:
+        from event_store import append_event
+    except ModuleNotFoundError:
+        from scripts.event_store import append_event
+    revision = record.get("revision")
+    event_id = f"rule-{record_id}-{digest[:20]}"
+    return append_event(binding, {
+        "event_type": event_type,
+        "category": "rule",
+        "summary": "Private project rule version recorded." if event_type == "rule.versioned" else "Private project rule deactivated.",
+        "data": {"record": record, "version_digest": digest, "revision": revision},
+    }, event_id=event_id)
 
 
 @contextlib.contextmanager
@@ -353,21 +438,60 @@ def _validate_state(state):
     return state
 
 
-def _read_state(state_path):
+def _read_state(state_path, binding=None):
     if _existing_symlink(state_path):
         raise UserRulesError("The private user-rules state file is a symbolic link; no rules were applied.")
     if not state_path.exists():
-        return _empty_state()
+        state = _empty_state()
+        return _recover_rule_state(state, binding) if binding is not None else state
     try:
         if state_path.stat().st_size > MAX_STATE_BYTES:
             raise UserRulesError("The private user-rules state exceeds its size limit; no rules were applied.")
         raw = state_path.read_bytes()
         state = json.loads(raw.decode("utf-8"))
     except UserRulesError:
+        if binding is not None:
+            return _recover_rule_state(_empty_state(), binding)
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        if binding is not None:
+            return _recover_rule_state(_empty_state(), binding)
         raise UserRulesError("The private user-rules state is unreadable or corrupt; no rules were applied.") from error
-    return _validate_state(state)
+    try:
+        state = _validate_state(state)
+    except UserRulesError:
+        if binding is not None:
+            return _recover_rule_state(_empty_state(), binding)
+        raise
+    if binding is not None:
+        state = _recover_rule_state(state, binding)
+    return state
+
+
+def _recover_rule_state(state, binding):
+    try:
+        from environment_projection import read_snapshot
+    except ModuleNotFoundError:
+        from scripts.environment_projection import read_snapshot
+    snapshot = read_snapshot(binding)
+    records = {record["id"]: record for record in state["rules"]}
+    revision = state["revision"]
+    allowed_fields = {"id", "content", "content_digest", "status", "created_at", "proposed_policy_digest", "review"}
+    for projected in snapshot["rules"]:
+        record = {key: projected[key] for key in allowed_fields if key in projected}
+        if set(record) != allowed_fields:
+            continue
+        try:
+            _validate_state({"schema_version": SCHEMA_VERSION, "revision": 0, "rules": [record]})
+        except UserRulesError:
+            continue
+        records[record["id"]] = record
+        stored_revision = projected.get("revision")
+        if isinstance(stored_revision, int) and not isinstance(stored_revision, bool):
+            revision = max(revision, stored_revision)
+    revision = max(revision, len(records))
+    recovered = {"schema_version": SCHEMA_VERSION, "revision": revision, "rules": list(records.values())}
+    return _validate_state(recovered)
 
 
 def _write_state(state_path, state):
@@ -400,6 +524,8 @@ def _rule_digest(content):
 def _review_status(record, policy_digest):
     if _rule_digest(record["content"]) != record["content_digest"]:
         return "tampered", "Stored rule content failed its integrity check."
+    if record["status"] == "inactive":
+        return "inactive", None
     review = record.get("review")
     if record["status"] == "active":
         if not isinstance(review, dict) or review.get("decision") != "accept":
@@ -434,11 +560,12 @@ def propose_rule(project, content, plugin_root=None):
     if len(_encode_text(content, "proposed rule")) > MAX_RULE_BYTES:
         raise UserRulesError(f"A proposed rule exceeds the {MAX_RULE_BYTES}-byte limit.")
     snapshot = policy_snapshot(plugin_root)
-    directory, state_path, lock_path = _paths(project, create=True)
+    binding = _account_binding(project)
+    directory, state_path, lock_path = _paths(project, create=True, binding=binding)
     with _state_lock(lock_path):
-        state = _read_state(state_path)
+        state = _read_state(state_path, binding)
         if len(state["rules"]) >= MAX_RULES:
-            raise UserRulesError(f"The project already has {MAX_RULES} stored rules; remove an unused rule first.")
+            raise UserRulesError(f"The account project already has {MAX_RULES} stored rule versions; historical records are preserved.")
         record = {
             "id": str(uuid.uuid4()),
             "content": content,
@@ -448,6 +575,8 @@ def propose_rule(project, content, plugin_root=None):
             "proposed_policy_digest": snapshot["policy_digest"],
             "review": None,
         }
+        next_revision = state["revision"] + 1
+        _record_rule_version(binding, {**record, "revision": next_revision})
         state["rules"].append(record)
         state["revision"] += 1
         _write_state(state_path, state)
@@ -468,8 +597,9 @@ def _listing_from_state(state, policy_digest, diagnostics=None):
 
 
 def list_rules(project, plugin_root=None):
-    directory, state_path, _ = _paths(project)
-    state = _read_state(state_path) if directory.exists() else _empty_state()
+    binding = _account_binding(project)
+    directory, state_path, _ = _paths(project, binding=binding)
+    state = _read_state(state_path, binding) if directory.exists() else _recover_rule_state(_empty_state(), binding)
     try:
         policy_digest = policy_snapshot(plugin_root)["policy_digest"]
         diagnostics = []
@@ -480,8 +610,9 @@ def list_rules(project, plugin_root=None):
 
 
 def read_rule(project, rule_id, plugin_root=None):
-    directory, state_path, _ = _paths(project)
-    state = _read_state(state_path) if directory.exists() else _empty_state()
+    binding = _account_binding(project)
+    directory, state_path, _ = _paths(project, binding=binding)
+    state = _read_state(state_path, binding) if directory.exists() else _recover_rule_state(_empty_state(), binding)
     diagnostics = []
     try:
         snapshot = policy_snapshot(plugin_root)
@@ -519,9 +650,10 @@ def review_rule(project, rule_id, decision, reviewer, reason, expected_content_d
     if (not isinstance(expected_content_digest, str) or not isinstance(expected_policy_digest, str)
             or len(expected_content_digest) != 64 or len(expected_policy_digest) != 64):
         raise UserRulesError("The review requires the exact content and policy digests.")
-    directory, state_path, lock_path = _paths(project, create=True)
+    binding = _account_binding(project)
+    directory, state_path, lock_path = _paths(project, create=True, binding=binding)
     with _state_lock(lock_path):
-        state = _read_state(state_path)
+        state = _read_state(state_path, binding)
         _require_revision(state, expected_revision)
         snapshot = policy_snapshot(plugin_root)
         if snapshot["policy_digest"] != expected_policy_digest:
@@ -529,6 +661,8 @@ def review_rule(project, rule_id, decision, reviewer, reason, expected_content_d
         record = next((item for item in state["rules"] if item["id"] == rule_id), None)
         if record is None:
             raise UserRulesError("The requested rule ID does not exist in this project.")
+        if record["status"] == "inactive":
+            raise UserRulesError("An inactive rule cannot be reviewed again; propose a new version instead.")
         actual_content_digest = _rule_digest(record["content"])
         if actual_content_digest != record["content_digest"] or actual_content_digest != expected_content_digest:
             raise UserRulesError("Rule content changed or failed its integrity check; do not record this review.")
@@ -542,6 +676,7 @@ def review_rule(project, rule_id, decision, reviewer, reason, expected_content_d
             "policy_digest": snapshot["policy_digest"],
             "reviewed_at": now,
         }
+        _record_rule_version(binding, {**record, "revision": state["revision"] + 1})
         state["revision"] += 1
         _write_state(state_path, state)
     return {"rule": _metadata(record, snapshot["policy_digest"]), "revision": state["revision"],
@@ -549,14 +684,18 @@ def review_rule(project, rule_id, decision, reviewer, reason, expected_content_d
 
 
 def remove_rule(project, rule_id, expected_revision, plugin_root=None):
-    directory, state_path, lock_path = _paths(project, create=True)
+    binding = _account_binding(project)
+    directory, state_path, lock_path = _paths(project, create=True, binding=binding)
     with _state_lock(lock_path):
-        state = _read_state(state_path)
+        state = _read_state(state_path, binding)
         _require_revision(state, expected_revision)
-        original_count = len(state["rules"])
-        state["rules"] = [record for record in state["rules"] if record["id"] != rule_id]
-        if len(state["rules"]) == original_count:
+        record = next((item for item in state["rules"] if item["id"] == rule_id), None)
+        if record is None:
             raise UserRulesError("The requested rule ID does not exist in this project.")
+        if record["status"] == "inactive":
+            raise UserRulesError("The requested rule is already inactive.")
+        record["status"] = "inactive"
+        _record_rule_version(binding, {**record, "revision": state["revision"] + 1}, event_type="rule.deactivated")
         state["revision"] += 1
         _write_state(state_path, state)
         revision = state["revision"]
@@ -564,16 +703,18 @@ def remove_rule(project, rule_id, expected_revision, plugin_root=None):
         current_policy_digest = policy_snapshot(plugin_root)["policy_digest"]
     except UserRulesError:
         current_policy_digest = None
-    return {"removed": rule_id, "revision": revision, "policy_digest": current_policy_digest}
+    return {"removed": rule_id, "deactivated": True, "retained": True,
+            "revision": revision, "policy_digest": current_policy_digest}
 
 
 def effective_rules(project, plugin_root=None):
     diagnostics = []
     try:
         snapshot = policy_snapshot(plugin_root)
-        directory, state_path, _ = _paths(project)
-        state = _read_state(state_path) if directory.exists() else _empty_state()
-    except UserRulesError:
+        binding = _account_binding(project)
+        directory, state_path, _ = _paths(project, binding=binding)
+        state = _read_state(state_path, binding) if directory.exists() else _recover_rule_state(_empty_state(), binding)
+    except (UserRulesError, RuntimeError):
         return {"revision": 0, "policy_digest": None, "rules": [],
                 "diagnostics": ["Private project rules could not be verified and were not applied."]}
     listing = _listing_from_state(state, snapshot["policy_digest"])

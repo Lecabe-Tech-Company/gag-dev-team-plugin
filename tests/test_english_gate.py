@@ -1,5 +1,7 @@
 """Exercise committed PR diffs; external Git traffic and Graphify alone are fake."""
 import contextlib
+import base64
+import hashlib
 import importlib.util
 import io
 import json
@@ -359,6 +361,88 @@ class EnglishGateTests(unittest.TestCase):
         self.commit({"planejamento.md": "# Especificação\nO acompanhamento pode ser em português.\n"})
         self.analyze()
         self.assertEqual(self.graphify_calls, 0)
+
+    def test_css_native_contracts_and_frontend_text_are_allowed(self):
+        self.commit({"dashboard/styles.css": ".order-card { --row-gap: 8px; display: grid; gap: var(--row-gap); }\n"
+                                            ".order-card::before { content: 'Pedidos'; }\n"
+                                            "@media (min-width: 40rem) { .order-card { display: block; } }\n"})
+        self.analyze()
+
+    def test_css_custom_identifiers_and_new_file_names_remain_english(self):
+        cases = (
+            ("dashboard/styles.css", ".pedido-card { display: grid; }\n"),
+            ("dashboard/styles.css", ":root { --quantidade: 1; }\n"),
+            ("dashboard/styles.css", "@keyframes pedido-pulse { from { opacity: 0; } to { opacity: 1; } }\n"),
+            ("dashboard/pedidos.css", ".order-card { display: grid; }\n"),
+        )
+        for relative, content in cases:
+            with self.subTest(path=relative, content=content):
+                self.commit({relative: content})
+                with self.assertRaises(self.hook.GateError):
+                    self.analyze()
+                self.git("rm", relative)
+                self.git("commit", "-qm", "remove invalid CSS fixture")
+
+    def lockfile(self):
+        dependencies = {"next": "16.4.6", "lightningcss": "1.30.1"}
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(b"synthetic package").digest()).decode("ascii")
+        manifest = {"name": "gag-dashboard", "version": "0.1.0", "private": True,
+                    "dependencies": dependencies}
+        lock = {"name": "gag-dashboard", "version": "0.1.0", "lockfileVersion": 3, "requires": True,
+                "packages": {"": {"name": "gag-dashboard", "version": "0.1.0", "dependencies": dependencies}}}
+        for name, version in dependencies.items():
+            lock["packages"]["node_modules/" + name] = {
+                "version": version, "resolved": "https://registry.npmjs.org/" + name + "/-/" + name + "-" + version + ".tgz",
+                "integrity": integrity,
+            }
+        return manifest, lock
+
+    def test_npm_lockfile_external_dependency_contracts_are_not_local_identifiers(self):
+        manifest, lock = self.lockfile()
+        self.commit({"dashboard/package.json": json.dumps(manifest),
+                     "dashboard/package-lock.json": json.dumps(lock)})
+        self.analyze()
+
+    def test_lockfile_name_does_not_exempt_unexpected_portuguese_local_keys(self):
+        manifest, lock = self.lockfile()
+        lock["quantidade"] = 1
+        self.commit({"dashboard/package.json": json.dumps(manifest),
+                     "dashboard/package-lock.json": json.dumps(lock)})
+        with self.assertRaises(self.hook.GateError):
+            self.analyze()
+
+    def test_bash_native_commands_and_english_variables_are_allowed(self):
+        self.commit({"scripts/check_runtime.sh": "#!/usr/bin/env bash\nset -euo pipefail\n"
+                                               "check_runtime() { local runtime_path='node'; printf '%s\\n' \"$runtime_path\"; }\n"
+                                               "check_runtime\n"})
+        self.analyze()
+
+    def test_bash_portuguese_variables_functions_and_malformed_syntax_are_blocked(self):
+        cases = ("#!/usr/bin/env bash\nquantidade=1\nprintf '%s\\n' \"$quantidade\"\n",
+                 "#!/usr/bin/env bash\ncalcular_total() { printf 'ready'; }\n",
+                 "#!/usr/bin/env bash\nif true; then\nprintf 'ready'\n")
+        for content in cases:
+            with self.subTest(content=content):
+                self.commit({"scripts/check_runtime.sh": content})
+                with self.assertRaises(self.hook.GateError):
+                    self.analyze()
+
+    def test_workflow_yaml_and_english_run_identifiers_are_allowed(self):
+        self.commit({".github/workflows/build.yml": "name: Build\non: push\njobs:\n  build:\n"
+                                                   "    runs-on: ubuntu-latest\n    steps:\n      - run: |\n"
+                                                   "          runtime_path='node'\n          printf '%s\\n' \"$runtime_path\"\n"})
+        self.analyze()
+
+    def test_yaml_portuguese_keys_run_variables_and_invalid_graphs_are_blocked(self):
+        cases = ("quantidade: 1\n",
+                 "jobs:\n  build:\n    steps:\n      - run: |\n          quantidade=1\n          printf '%s' \"$quantidade\"\n",
+                 "jobs: [\n",
+                 "settings: &settings\n  child: *settings\n")
+        for content in cases:
+            with self.subTest(content=content):
+                self.commit({"dashboard/settings.yaml": content})
+                with self.assertRaises(self.hook.GateError):
+                    self.analyze()
 
 
 class NativeLanguageGateTests(unittest.TestCase):

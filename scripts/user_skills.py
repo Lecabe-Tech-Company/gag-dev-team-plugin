@@ -13,8 +13,10 @@ from user_rules import (
     UserRulesError,
     _digest,
     _encode_text,
+    _ensure_account_directory,
     _existing_symlink,
     _require_revision,
+    _account_binding,
     atomic_private_write,
     policy_snapshot as _shared_policy_snapshot,
     private_directory,
@@ -39,7 +41,7 @@ MAX_REVIEWER_CHARS = 120
 MAX_REASON_CHARS = 1000
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REFERENCE_PATTERN = re.compile(r"^references/[a-z0-9]+(?:-[a-z0-9]+)*\.(?:md|txt)$")
-STATUSES = {"pending", "draft", "active", "rejected", "unclear"}
+STATUSES = {"pending", "draft", "active", "rejected", "unclear", "inactive"}
 
 
 class UserSkillsError(UserRulesError):
@@ -47,10 +49,15 @@ class UserSkillsError(UserRulesError):
 
 
 def storage_root(project):
-    """Return the private user-skills directory in Git common metadata."""
+    """Return the authenticated account's project-local skill runtime cache."""
     try:
-        return private_storage_root(project, "user-skills")
-    except UserRulesError as error:
+        from environment_identity import project_binding, resolve_identity
+    except ModuleNotFoundError:
+        from scripts.environment_identity import project_binding, resolve_identity
+    try:
+        binding = project_binding(project, resolve_identity())
+        return Path(binding["runtime_root"]) / "skills"
+    except Exception as error:
         raise UserSkillsError(str(error)) from error
 
 
@@ -77,8 +84,14 @@ def _skill_lock(path):
         raise UserSkillsError(str(error)) from error
 
 
-def _state_paths(project, create=False):
-    directory = storage_root(project)
+def _state_paths(project, create=False, binding=None):
+    if binding is None:
+        try:
+            from environment_identity import project_binding, resolve_identity
+        except ModuleNotFoundError:
+            from scripts.environment_identity import project_binding, resolve_identity
+        binding = project_binding(project, resolve_identity())
+    directory = Path(binding["runtime_root"]) / "skills"
     if create:
         _ensure_private_directory(directory)
     return directory, directory / "catalog.json", directory / ".lock"
@@ -214,7 +227,7 @@ def _validate_state(state):
         raise UserSkillsError("The private user-skills catalog is corrupt; no skills were applied.")
     if not isinstance(records, list) or len(records) > MAX_SKILLS:
         raise UserSkillsError("The private user-skills catalog is corrupt or exceeds its size limit.")
-    seen_ids, seen_slugs = set(), set()
+    seen_ids, active_slugs = set(), set()
     required = {"id", "slug", "name", "description", "source_kind", "origin", "evidence", "applicability",
                 "content_digest", "file_digests", "status", "created_at", "proposed_policy_digest", "review"}
     total = 0
@@ -229,12 +242,15 @@ def _validate_state(state):
             raise UserSkillsError("The private user-skills catalog contains an invalid skill ID.") from error
         seen_ids.add(identifier)
         slug = _slug(record["slug"])
-        if slug != record["name"] or slug in seen_slugs:
-            raise UserSkillsError("The private user-skills catalog contains a duplicate or mismatched skill name.")
-        seen_slugs.add(slug)
+        if slug != record["name"]:
+            raise UserSkillsError("The private user-skills catalog contains a mismatched skill name.")
         if (not isinstance(record["source_kind"], str) or record["source_kind"] not in {"explicit", "inferred"}
                 or not isinstance(record["status"], str) or record["status"] not in STATUSES):
             raise UserSkillsError("The private user-skills catalog contains an invalid skill status or origin.")
+        if record["status"] != "inactive":
+            if slug in active_slugs:
+                raise UserSkillsError("Only one non-inactive version of each private skill may exist.")
+            active_slugs.add(slug)
         for key, limit in (("description", MAX_DESCRIPTION_CHARS), ("origin", MAX_ORIGIN_CHARS),
                            ("evidence", MAX_EVIDENCE_CHARS), ("applicability", MAX_APPLICABILITY_CHARS),
                            ("created_at", 100), ("proposed_policy_digest", 64), ("content_digest", 64)):
@@ -265,20 +281,60 @@ def _validate_state(state):
     return state
 
 
-def _read_state(path):
+def _read_state(path, binding=None):
     if _existing_symlink(path):
         raise UserSkillsError("The private user-skills catalog file is unsafe.")
     if not path.exists():
-        return _empty_state()
+        state = _empty_state()
+        return _recover_skill_state(state, binding) if binding is not None else state
     try:
         if path.stat().st_size > MAX_STORE_BYTES:
             raise UserSkillsError("The private user-skills catalog exceeds its size limit.")
         state = json.loads(path.read_text(encoding="utf-8"))
     except UserSkillsError:
+        if binding is not None:
+            return _recover_skill_state(_empty_state(), binding)
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        if binding is not None:
+            return _recover_skill_state(_empty_state(), binding)
         raise UserSkillsError("The private user-skills catalog is unreadable or corrupt.") from error
-    return _validate_state(state)
+    try:
+        state = _validate_state(state)
+    except UserSkillsError:
+        if binding is not None:
+            return _recover_skill_state(_empty_state(), binding)
+        raise
+    if binding is not None:
+        state = _recover_skill_state(state, binding)
+    return state
+
+
+def _recover_skill_state(state, binding):
+    try:
+        from environment_projection import read_snapshot
+    except ModuleNotFoundError:
+        from scripts.environment_projection import read_snapshot
+    snapshot = read_snapshot(binding)
+    records = {record["id"]: record for record in state["skills"]}
+    revision = state["revision"]
+    allowed_fields = {"id", "slug", "name", "description", "source_kind", "origin", "evidence", "applicability",
+                      "content_digest", "file_digests", "status", "created_at", "proposed_policy_digest", "review"}
+    for projected in snapshot["skills"]:
+        record = {key: projected[key] for key in allowed_fields if key in projected}
+        if set(record) != allowed_fields:
+            continue
+        try:
+            _validate_state({"schema_version": SCHEMA_VERSION, "revision": 0, "skills": [record]})
+        except UserSkillsError:
+            continue
+        records[record["id"]] = record
+        stored_revision = projected.get("revision")
+        if isinstance(stored_revision, int) and not isinstance(stored_revision, bool):
+            revision = max(revision, stored_revision)
+    revision = max(revision, len(records))
+    recovered = {"schema_version": SCHEMA_VERSION, "revision": revision, "skills": list(records.values())}
+    return _validate_state(recovered)
 
 
 def _write_state(path, state):
@@ -288,8 +344,64 @@ def _write_state(path, state):
     _write_private(path, raw)
 
 
+def _record_skill_version(binding, record, files, event_type="skill.versioned"):
+    record_payload = {**record, "revision": record.get("revision")}
+    file_digests = {}
+    content_root = Path(binding["versions_root"]) / "skills" / record["slug"]
+    try:
+        _ensure_account_directory(content_root, Path(binding["private_root"]))
+    except UserRulesError as error:
+        raise UserSkillsError(str(error)) from error
+    for relative, content in sorted(files.items()):
+        raw = _encode_text(content, relative)
+        digest = _digest(raw)
+        file_digests[relative] = digest
+        target = content_root / digest / Path(*PurePosixPath(relative).parts)
+        try:
+            _ensure_account_directory(target.parent, Path(binding["private_root"]))
+        except UserRulesError as error:
+            raise UserSkillsError(str(error)) from error
+        if _existing_symlink(target):
+            raise UserSkillsError("An immutable private skill version path is unsafe.")
+        if target.exists():
+            if target.read_bytes() != raw:
+                raise UserSkillsError("An immutable private skill version already exists with different bytes.")
+            continue
+        temporary = target.with_name("." + target.name + ".pending")
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        except FileExistsError:
+            raise UserSkillsError("A concurrent private skill version write is incomplete; retry.")
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, target)
+        except FileExistsError:
+            if target.read_bytes() != raw:
+                raise UserSkillsError("A concurrent private skill version contains different bytes.")
+        except OSError as error:
+            raise UserSkillsError("The immutable private skill version could not be published safely.") from error
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    manifest = {"record": record_payload, "files": file_digests}
+    digest = hashlib.sha256(json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    try:
+        from event_store import append_event
+    except ModuleNotFoundError:
+        from scripts.event_store import append_event
+    return append_event(binding, {
+        "event_type": event_type,
+        "category": "skill",
+        "summary": "Private user skill version recorded." if event_type == "skill.versioned" else "Private user skill deactivated.",
+        "data": {"record": record_payload, "files": file_digests, "version_digest": digest},
+    }, event_id=f"skill-{record['id']}-{digest[:20]}")
+
+
 def _read_bundle(root, record):
-    skill_dir = root / record["slug"]
+    skill_dir = root / record["slug"] / record["id"]
     if _existing_symlink(skill_dir) or not skill_dir.is_dir() or not skill_dir.resolve().is_relative_to(root.resolve()):
         raise UserSkillsError("The private skill folder is missing or unsafe.")
     expected_paths = set(record["file_digests"])
@@ -347,6 +459,8 @@ def _read_bundle(root, record):
 
 
 def _status(record, policy_digest):
+    if record["status"] == "inactive":
+        return "inactive", None
     if record["status"] in {"active", "draft"}:
         receipt = record["review"]
         if not isinstance(receipt, dict) or receipt["content_digest"] != record["content_digest"]:
@@ -385,30 +499,45 @@ def _metadata(record, policy_digest, include_review=False):
 
 
 def _snapshot(project, plugin_root=None):
-    root, state_path, _ = _state_paths(project)
-    state = _read_state(state_path) if root.exists() else _empty_state()
+    binding = _account_binding(project)
+    root, state_path, _ = _state_paths(project, binding=binding)
+    state = _read_state(state_path, binding) if root.exists() else _recover_skill_state(_empty_state(), binding)
     snapshot = _policy_snapshot(plugin_root)
-    return root, state, snapshot
+    return root, state, snapshot, binding
+
+
+def _find_skill_record(state, skill_id):
+    if not isinstance(skill_id, str):
+        return None
+    matches = [record for record in state["skills"] if record["id"] == skill_id or record["slug"] == skill_id]
+    return matches[-1] if matches else None
 
 
 def propose_skill(project, bundle, plugin_root=None, expected_revision=None):
     metadata, files, content_digest = _normalize_bundle(bundle)
     snapshot = _policy_snapshot(plugin_root)
-    root, state_path, lock_path = _state_paths(project, create=True)
+    binding = _account_binding(project)
+    root, state_path, lock_path = _state_paths(project, create=True, binding=binding)
     with _skill_lock(lock_path):
-        state = _read_state(state_path)
+        state = _read_state(state_path, binding)
         if expected_revision is not None:
             _require_skill_revision(state, expected_revision)
         if len(state["skills"]) >= MAX_SKILLS:
-            raise UserSkillsError(f"The project already has {MAX_SKILLS} private skills; remove an unused skill first.")
-        if any(record["slug"] == metadata["name"] for record in state["skills"]):
-            raise UserSkillsError("A private skill with this slug already exists; update or remove its current proposal first.")
+            raise UserSkillsError(f"The account project already has {MAX_SKILLS} stored skill versions; historical records are preserved.")
+        if any(record["slug"] == metadata["name"] and record["status"] != "inactive" for record in state["skills"]):
+            raise UserSkillsError("A non-inactive private skill with this slug already exists; deactivate it before proposing a new version.")
         if _policy_snapshot(plugin_root)["policy_digest"] != snapshot["policy_digest"]:
             raise UserSkillsError("Plugin policies changed while proposing this skill; reload the current policy snapshot.")
-        skill_dir = root / metadata["name"]
+        record_id = str(uuid.uuid4())
+        skill_parent = root / metadata["name"]
+        if not skill_parent.exists():
+            _ensure_private_directory(skill_parent)
+        if _existing_symlink(skill_parent) or not skill_parent.is_dir():
+            raise UserSkillsError("The private skill history folder is unsafe.")
+        skill_dir = skill_parent / record_id
         if skill_dir.exists() or _existing_symlink(skill_dir):
-            raise UserSkillsError("A private skill folder with this slug already exists and cannot be replaced safely.")
-        staging = root / (".pending-" + uuid.uuid4().hex)
+            raise UserSkillsError("A private skill version folder already exists and cannot be replaced safely.")
+        staging = skill_parent / (".pending-" + uuid.uuid4().hex)
         _ensure_private_directory(staging)
         try:
             for relative, content in files.items():
@@ -421,7 +550,7 @@ def propose_skill(project, bundle, plugin_root=None, expected_revision=None):
             shutil.rmtree(staging, ignore_errors=True)
             raise
         record = {
-            "id": str(uuid.uuid4()),
+            "id": record_id,
             "slug": metadata["name"],
             **metadata,
             "content_digest": content_digest,
@@ -431,12 +560,12 @@ def propose_skill(project, bundle, plugin_root=None, expected_revision=None):
             "proposed_policy_digest": snapshot["policy_digest"],
             "review": None,
         }
+        _record_skill_version(binding, {**record, "revision": state["revision"] + 1}, files)
         state["skills"].append(record)
         state["revision"] += 1
         try:
             _write_state(state_path, state)
         except Exception:
-            shutil.rmtree(skill_dir, ignore_errors=True)
             raise
     result = _metadata(record, snapshot["policy_digest"], include_review=True)
     return {**result, "skill": result, "revision": state["revision"], "policy_digest": snapshot["policy_digest"]}
@@ -445,7 +574,7 @@ def propose_skill(project, bundle, plugin_root=None, expected_revision=None):
 def list_skills(project, plugin_root=None):
     diagnostics = []
     try:
-        root, state, snapshot = _snapshot(project, plugin_root)
+        root, state, snapshot, _binding = _snapshot(project, plugin_root)
         policy_digest = snapshot["policy_digest"]
         skills = []
         for record in state["skills"]:
@@ -456,15 +585,15 @@ def list_skills(project, plugin_root=None):
                 metadata = _metadata(record, policy_digest, include_review=True)
                 metadata.update(status="tampered", diagnostic=str(error))
                 skills.append(metadata)
-    except UserSkillsError as error:
+    except RuntimeError as error:
         return {"revision": 0, "policy_digest": None, "skills": [], "diagnostics": [str(error)]}
     return {"revision": state["revision"], "policy_digest": policy_digest, "skills": skills,
             "diagnostics": diagnostics}
 
 
 def read_skill(project, skill_id, plugin_root=None):
-    root, state, snapshot = _snapshot(project, plugin_root)
-    record = next((item for item in state["skills"] if item["id"] == skill_id or item["slug"] == skill_id), None)
+    root, state, snapshot, _binding = _snapshot(project, plugin_root)
+    record = _find_skill_record(state, skill_id)
     if record is None:
         raise UserSkillsError("The requested private skill does not exist.")
     files = _read_bundle(root, record)
@@ -492,12 +621,15 @@ def review_skill(project, skill_id, decision, reviewer, reason, expected_content
         raise UserSkillsError("Review decision must be accept, reject, or unclear.")
     _text(reviewer, "Skill reviewer", MAX_REVIEWER_CHARS)
     _text(reason, "Skill review reason", MAX_REASON_CHARS)
-    root, state_path, lock_path = _state_paths(project, create=True)
+    binding = _account_binding(project)
+    root, state_path, lock_path = _state_paths(project, create=True, binding=binding)
     with _skill_lock(lock_path):
-        state = _read_state(state_path)
-        record = next((item for item in state["skills"] if item["id"] == skill_id or item["slug"] == skill_id), None)
+        state = _read_state(state_path, binding)
+        record = _find_skill_record(state, skill_id)
         if record is None:
             raise UserSkillsError("The requested private skill does not exist.")
+        if record["status"] == "inactive":
+            raise UserSkillsError("An inactive skill cannot be reviewed again; propose a new skill instead.")
         files = _read_bundle(root, record)
         snapshot = _require_review_snapshot(record, expected_content_digest, expected_policy_digest,
                                             expected_revision, state, plugin_root)
@@ -514,6 +646,7 @@ def review_skill(project, skill_id, decision, reviewer, reason, expected_content
             "policy_digest": snapshot["policy_digest"],
             "reviewed_at": datetime.now(timezone.utc).isoformat(),
         }
+        _record_skill_version(binding, {**record, "revision": state["revision"] + 1}, files)
         state["revision"] += 1
         _write_state(state_path, state)
     result = _metadata(record, snapshot["policy_digest"], include_review=True)
@@ -523,12 +656,15 @@ def review_skill(project, skill_id, decision, reviewer, reason, expected_content
 def confirm_skill_origin(project, skill_id, confirmation, expected_content_digest, expected_policy_digest,
                          expected_revision, plugin_root=None):
     confirmation = _text(confirmation, "User clarification", MAX_EVIDENCE_CHARS)
-    root, state_path, lock_path = _state_paths(project, create=True)
+    binding = _account_binding(project)
+    root, state_path, lock_path = _state_paths(project, create=True, binding=binding)
     with _skill_lock(lock_path):
-        state = _read_state(state_path)
-        record = next((item for item in state["skills"] if item["id"] == skill_id or item["slug"] == skill_id), None)
+        state = _read_state(state_path, binding)
+        record = _find_skill_record(state, skill_id)
         if record is None:
             raise UserSkillsError("The requested private skill does not exist.")
+        if record["status"] == "inactive":
+            raise UserSkillsError("An inactive skill cannot be clarified; propose a new skill instead.")
         files = _read_bundle(root, record)
         snapshot = _require_review_snapshot(record, expected_content_digest, expected_policy_digest,
                                             expected_revision, state, plugin_root)
@@ -542,6 +678,7 @@ def confirm_skill_origin(project, skill_id, confirmation, expected_content_diges
         record["status"] = "pending"
         record["proposed_policy_digest"] = snapshot["policy_digest"]
         record["review"] = None
+        _record_skill_version(binding, {**record, "revision": state["revision"] + 1}, files)
         state["revision"] += 1
         _write_state(state_path, state)
     result = _metadata(record, snapshot["policy_digest"], include_review=True)
@@ -549,31 +686,32 @@ def confirm_skill_origin(project, skill_id, confirmation, expected_content_diges
 
 
 def remove_skill(project, skill_id, expected_revision, plugin_root=None):
-    root, state_path, lock_path = _state_paths(project, create=True)
+    binding = _account_binding(project)
+    root, state_path, lock_path = _state_paths(project, create=True, binding=binding)
     with _skill_lock(lock_path):
-        state = _read_state(state_path)
+        state = _read_state(state_path, binding)
         _require_skill_revision(state, expected_revision)
-        record = next((item for item in state["skills"] if item["id"] == skill_id or item["slug"] == skill_id), None)
+        record = _find_skill_record(state, skill_id)
         if record is None:
             raise UserSkillsError("The requested private skill does not exist.")
-        state["skills"].remove(record)
+        if record["status"] == "inactive":
+            raise UserSkillsError("The requested private skill is already inactive.")
+        files = _read_bundle(root, record)
+        record["status"] = "inactive"
+        _record_skill_version(binding, {**record, "revision": state["revision"] + 1}, files, event_type="skill.deactivated")
         state["revision"] += 1
         _write_state(state_path, state)
         revision = state["revision"]
-    skill_dir = root / record["slug"]
-    if _existing_symlink(skill_dir):
-        raise UserSkillsError("The private skill folder became unsafe during removal.")
-    shutil.rmtree(skill_dir, ignore_errors=False)
     try:
         policy_digest = _policy_snapshot(plugin_root)["policy_digest"]
     except UserRulesError:
         policy_digest = None
     return {"id": record["id"], "revision": revision, "removed": True,
-            "policy_digest": policy_digest}
+            "deactivated": True, "retained": True, "policy_digest": policy_digest}
 
 
 def _verified_records(project, plugin_root=None):
-    root, state, snapshot = _snapshot(project, plugin_root)
+    root, state, snapshot, _binding = _snapshot(project, plugin_root)
     valid, diagnostics = [], []
     for record in state["skills"]:
         try:
@@ -591,7 +729,7 @@ def _verified_records(project, plugin_root=None):
 def catalog_for(project, plugin_root=None):
     try:
         state, snapshot, valid, diagnostics = _verified_records(project, plugin_root)
-    except UserRulesError as error:
+    except RuntimeError as error:
         return {"revision": 0, "policy_digest": None, "skills": [], "diagnostics": [str(error)],
                 "context": _catalog_context(0, None, [], [str(error)])}
     skills = [{"id": record["id"], "namespace": "user/" + record["slug"], "name": record["name"],
@@ -620,7 +758,7 @@ def _catalog_context(revision, policy_digest, skills, diagnostics):
 def load_skill(project, skill_id, plugin_root=None):
     try:
         state, snapshot, valid, diagnostics = _verified_records(project, plugin_root)
-    except UserRulesError as error:
+    except RuntimeError as error:
         return {"revision": 0, "policy_digest": None, "skill": None, "diagnostics": [str(error)],
                 "context": _load_context(0, None, None, [str(error)])}
     selected = next((item for item in valid if item[0]["id"] == skill_id or item[0]["slug"] == skill_id), None)
