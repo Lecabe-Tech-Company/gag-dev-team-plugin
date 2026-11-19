@@ -2,6 +2,7 @@
 import http.client
 import importlib
 import json
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -11,6 +12,7 @@ import threading
 import time
 import tomllib
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -22,6 +24,18 @@ class ProjectCase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="gag qa spaces ")
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name)
+        self.identity_temp = tempfile.TemporaryDirectory(prefix="synthetic-github-client-")
+        self.addCleanup(self.identity_temp.cleanup)
+        client_root = Path(self.identity_temp.name)
+        client = client_root / "gh"
+        client.write_text("#!" + sys.executable + "\nimport json,sys\n"
+                          "if sys.argv[1:3] != ['api','user']: sys.exit(91)\n"
+                          "print(json.dumps({'id':101,'login':'qa-first'}))\n", encoding="utf-8")
+        client.chmod(0o755)
+        environment = patch.dict(os.environ, {"PATH": str(client_root) + os.pathsep + os.environ.get("PATH", ""),
+                                             "GH_CONFIG_DIR": str(client_root / "config")})
+        environment.start()
+        self.addCleanup(environment.stop)
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
         self.install = importlib.import_module("project_install")
 

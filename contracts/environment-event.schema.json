@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gag-dev-team.local/contracts/environment-event.schema.json",
+  "title": "GAG personal environment event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event_id", "event_type", "recorded_at", "recorded_at_source", "project_id", "user",
+    "session_id", "agent_id", "task_id", "attempt_id", "issue_id", "causes", "model",
+    "category", "severity", "attribution", "summary", "data", "payload_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "event_type": {
+      "enum": [
+        "identity.observed", "session.started", "session.ended", "attempt.recorded",
+        "rule.versioned", "rule.deactivated", "skill.versioned", "skill.deactivated",
+        "issue.opened", "issue.resolved", "issue.corrected", "legacy.imported",
+        "extension.discovered", "extension.downloaded", "extension.reviewed", "extension.installed",
+        "extension.activated", "extension.deactivated", "extension.failed", "extension.updated", "extension.removed"
+      ]
+    },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "recorded_at_source": { "enum": ["writer", "provided", "legacy_unknown"] },
+    "project_id": { "type": "string", "minLength": 1 },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "host", "id", "login"],
+      "properties": {
+        "provider": { "const": "github" },
+        "host": { "type": "string", "minLength": 1 },
+        "id": { "type": "integer", "minimum": 1 },
+        "login": { "type": "string", "minLength": 1, "maxLength": 39 }
+      }
+    },
+    "session_id": { "type": ["string", "null"], "maxLength": 256 },
+    "agent_id": { "type": ["string", "null"], "maxLength": 256 },
+    "task_id": { "type": ["string", "null"], "maxLength": 256 },
+    "attempt_id": { "type": ["string", "null"], "maxLength": 256 },
+    "issue_id": { "type": ["string", "null"], "maxLength": 256 },
+    "causes": { "type": "array", "items": { "type": "string", "maxLength": 128 } },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "requested", "observed", "source"],
+      "properties": {
+        "provider": { "type": ["string", "null"], "maxLength": 128 },
+        "requested": { "type": ["string", "null"], "maxLength": 256 },
+        "observed": { "type": ["string", "null"], "maxLength": 256 },
+        "source": { "enum": ["unknown", "configured", "declared", "observed"] }
+      }
+    },
+    "category": { "type": ["string", "null"], "maxLength": 256 },
+    "severity": { "type": ["string", "null"], "maxLength": 256 },
+    "attribution": { "type": ["string", "null"], "maxLength": 256 },
+    "summary": { "type": "string", "maxLength": 2000 },
+    "data": { "type": "object" },
+    "payload_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

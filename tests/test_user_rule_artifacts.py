@@ -60,7 +60,7 @@ class UserRuleArtifactTests(UserRulesCase):
     def test_real_release_update_preserves_private_records_outside_managed_runtime(self):
         proposed = self.propose()
         self.review(proposed)
-        storage = self.rules.storage_root(self.project)
+        storage = self.rule_storage()
         before = {path.relative_to(storage): path.read_bytes() for path in storage.rglob("*") if path.is_file()}
         builder = importlib.import_module("build_release")
         releases = importlib.import_module("releases")

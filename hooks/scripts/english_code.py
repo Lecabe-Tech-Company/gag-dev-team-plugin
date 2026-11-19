@@ -14,9 +14,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DICTIONARY = ROOT / "language_data" / "en_US.txt"
 DICTIONARY_SHA256 = "4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04"
-SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml"}
+SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml", ".css", ".sh", ".bash", ".yaml", ".yml"}
 NON_ENGLISH_HOMOGRAPHS = {"nome", "dados", "valor", "valores"}
 TECHNICAL_WORDS = {
+    # npm package-lock schema contract.
+    "lockfile",
+    # Exact Python standard-library and process/platform API names.
+    "urllib", "urlsafe", "pid", "creationflags", "popen", "getsockname", "timedelta",
+    "fdopen", "fileno", "infolist", "wronly", "attr", "sha",
+    # Exact npm/TypeScript, DOM/HTML, CSS UI, and JavaScript API vocabulary.
+    "dev", "tsconfig", "js", "ts", "interop", "jsx", "globals", "nav", "topbar",
+    "params", "pathname", "href", "h1", "h2", "thead", "tbody", "intl", "auth",
+    "loopback", "stringify", "concat",
+    "gh", "xdg",
+    # JSON Schema keywords and exact Python mapping/date/filesystem/HTTP APIs.
+    "const", "enum", "defs", "setdefault", "fromisoformat", "tzinfo", "mkstemp",
+    "fchmod", "astimezone", "strftime", "isalnum", "wfile",
+    "lifecycle", "sigterm", "executables",
+    # Python standard-library contracts and the exact external npm package name.
+    "getpid", "base64", "b64encode", "sha512", "lightningcss",
+    # SVG/React DOM contracts and the canonical Iconsax free icon name.
+    "svg", "svgsvg", "linecap", "linejoin", "focusable", "magicpen",
+    "describedby",  # Standard aria-describedby accessibility attribute.
     # Standard-library, operating-system, Git, and skill-format contracts.
     "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
     "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",
@@ -58,6 +77,9 @@ TOKEN_PATTERN = re.compile(r"[^\W\d]\w*", re.UNICODE)
 IDENTIFIER_SPLIT_PATTERN = re.compile(r"[^A-Za-z]+")
 JSON_KEY_PATTERN = re.compile(r'"((?:\\.|[^"\\])*)"\s*:')
 TREE_SITTER_LANGUAGES = {
+    ".sh": ("tree_sitter_bash", "bash"),
+    ".bash": ("tree_sitter_bash", "bash"),
+    ".css": ("tree_sitter_css", "css"),
     ".php": ("tree_sitter_php", "php"),
     ".js": ("tree_sitter_javascript", "javascript"),
     ".jsx": ("tree_sitter_javascript", "javascript"),
@@ -182,6 +204,51 @@ def _parse_tree_sitter_request():
         for item in request:
             path = item["path"]
             extension = Path(path).suffix.lower()
+            if extension in {".yml", ".yaml"}:
+                import yaml
+                import tree_sitter_bash
+                document = yaml.compose(item["content"], Loader=yaml.BaseLoader)
+                identifiers = []
+                pending = [document] if document else []
+                visited = set()
+                shell_parser = Parser(Language(tree_sitter_bash.language()))
+                while pending:
+                    current = pending.pop()
+                    if id(current) in visited:
+                        raise ValueError("YAML aliases require separate analysis")
+                    visited.add(id(current))
+                    if isinstance(current, yaml.MappingNode):
+                        seen = set()
+                        for key, value in current.value:
+                            if not isinstance(key, yaml.ScalarNode) or key.value in seen or key.value == "<<":
+                                raise ValueError("ambiguous YAML mapping")
+                            seen.add(key.value)
+                            identifiers.append({"line": key.start_mark.line + 1, "name": key.value})
+                            if key.value == "run" and isinstance(value, yaml.ScalarNode):
+                                if value.style != "|" and (value.end_mark.line > value.start_mark.line or "\n" in value.value):
+                                    raise ValueError("multiline workflow commands require literal block syntax")
+                                first_line = value.start_mark.line + (2 if value.style == "|" else 1)
+                                def replace_expression(match):
+                                    expression = match.group(1).strip()
+                                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+", expression):
+                                        raise ValueError("unsupported workflow expression")
+                                    identifiers.append({"line": first_line + value.value.count("\n", 0, match.start()), "name": expression})
+                                    return "workflow_expression"
+                                shell_source = re.sub(r"\$\{\{(.*?)\}\}", replace_expression, value.value)
+                                shell_tree = shell_parser.parse(shell_source.encode("utf-8"))
+                                if shell_tree.root_node.has_error:
+                                    raise ValueError("unsupported embedded shell")
+                                nodes = [shell_tree.root_node]
+                                while nodes:
+                                    node = nodes.pop()
+                                    if node.type in {"variable_name", "function_name"}:
+                                        identifiers.append({"line": first_line + node.start_point.row, "name": node.text.decode("utf-8")})
+                                    nodes.extend(node.children)
+                            pending.append(value)
+                    elif isinstance(current, yaml.SequenceNode):
+                        pending.extend(current.value)
+                result[path] = identifiers
+                continue
             module_name, language_name = TREE_SITTER_LANGUAGES[extension]
             module = __import__(module_name)
             if language_name == "php":
@@ -202,6 +269,19 @@ def _parse_tree_sitter_request():
             stack = [tree.root_node]
             while stack:
                 node = stack.pop()
+                if extension in {".sh", ".bash"}:
+                    if node.type in {"variable_name", "function_name"} or (node.parent and node.parent.type == "function_definition" and node.parent.child_by_field_name("name") == node):
+                        identifiers.append({"line": node.start_point.row + 1, "name": node.text.decode("utf-8")})
+                    stack.extend(reversed(node.children))
+                    continue
+                if extension == ".css":
+                    authored_name = node.type in {"class_name", "id_name", "keyframes_name"}
+                    custom_property = node.type == "property_name" and node.text.startswith(b"--")
+                    custom_reference = node.type == "plain_value" and node.text.startswith(b"--")
+                    if authored_name or custom_property or custom_reference:
+                        identifiers.append({"line": node.start_point.row + 1, "name": node.text.decode("utf-8")})
+                    stack.extend(reversed(node.children))
+                    continue
                 if node.child_count == 0 and node.type in {
                     "identifier", "property_identifier", "private_property_identifier",
                     "shorthand_property_identifier", "shorthand_property_identifier_pattern",
@@ -667,14 +747,47 @@ def _config_identifiers(content, path):
         if len(matches) != len(structural_keys):
             raise LanguageCheckError(f"Cannot locate every structural key in changed configuration file '{path}'.")
         identifiers = []
-        for match in matches:
+        key_paths = _json_key_paths(value)
+        for match, key_path in zip(matches, key_paths):
             try:
                 name = json.loads('"' + match.group(1) + '"')
             except json.JSONDecodeError as error:
                 raise LanguageCheckError(f"Cannot decode a JSON key in '{path}'.") from error
-            identifiers.append((content.count("\n", 0, match.start()) + 1, name))
+            if not _external_package_key(value, path, key_path):
+                identifiers.append((content.count("\n", 0, match.start()) + 1, name))
         return identifiers
     return _toml_key_identifiers(content, path, value)
+
+
+def _json_key_paths(value, prefix=()):
+    paths = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            current = prefix + (key,)
+            paths.append(current)
+            paths.extend(_json_key_paths(child, current))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            paths.extend(_json_key_paths(child, prefix + (index,)))
+    return paths
+
+
+def _external_package_key(value, path, key_path):
+    """Recognize npm schema positions, never exempt an entire generated file."""
+    filename = Path(path).name
+    if filename not in {"package.json", "package-lock.json"} or not isinstance(value, dict):
+        return False
+    dependency_maps = {"dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta"}
+    if filename == "package.json":
+        return len(key_path) == 2 and key_path[0] in dependency_maps
+    if value.get("lockfileVersion") not in {2, 3} or not isinstance(value.get("packages"), dict):
+        return False
+    if len(key_path) == 2 and key_path[0] == "packages":
+        return key_path[1] == "" or str(key_path[1]).startswith("node_modules/")
+    if len(key_path) == 4 and key_path[0] == "packages" and key_path[2] in dependency_maps:
+        return True
+    # Executable and engine names are contracts in dependency manifests only.
+    return len(key_path) == 4 and key_path[0] == "packages" and bool(key_path[1]) and key_path[2] in {"bin", "engines", "funding"}
 
 
 def _mapping_keys(value, prefix=()):

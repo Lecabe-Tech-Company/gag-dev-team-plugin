@@ -11,7 +11,7 @@ Use esta skill quando o usuário pedir uma skill particular ou quando o contexto
 
 Skills particulares complementam as políticas do plugin. Antes de ativar e antes de aplicar, confira a compatibilidade real. Recibo aceito, catálogo e texto privado não podem dispensar SDD, QA, Graphify, idioma do código, gates ou permissões da tarefa. Não sobrescreva skills distribuídas nem promova conteúdo particular a autoridade superior. Respeite preferências que o próprio plugin permite alterar.
 
-O armazenamento é `<git-common-dir>/gag-dev-team/user-skills/`, resolvido pelo carregador. Não crie cópias em `.agents/skills`, `.codex`, AGENTS.md ou outros arquivos versionáveis. Corpo, referências, evidência e recibos não entram em Scripta, Graphify, PRs, pacotes ou logs públicos. Não percorra chats anteriores nem monitore atividade externa; use o contexto disponível e exemplos fornecidos pelo usuário.
+O armazenamento atual é privado e vinculado à conta GitHub autenticada e ao projeto, resolvido pelo carregador. Não crie cópias em `.agents/skills`, `.codex`, AGENTS.md ou outros arquivos versionáveis. Os caminhos compartilhados da v0.4 são legado preservado, sem associação automática a uma conta. Corpo, referências, evidência e recibos não entram em Scripta, Graphify, PRs, pacotes ou logs públicos. Não percorra chats anteriores nem monitore atividade externa; use o contexto disponível e exemplos fornecidos pelo usuário.
 
 Distinga as origens:
 
@@ -72,6 +72,8 @@ node .gag-dev-team/plugin/bin/gag-dev-team.cjs skills remove SKILL_ID --project 
 O backend valida estrutura, estado, integridade e vínculo com as políticas. Ele não prova a semântica da preferência. Mesmo uma skill carregada deve ser ignorada se conflitar com uma obrigação real percebida na tarefa.
 
 ## Atualizar o conjunto efetivo
+
+Na versão com ambiente pessoal, skills do projeto ficam separadas pela conta GitHub autenticada. `remove` gera desativação histórica; preserva bundles e versões anteriores. O conjunto legado compartilhado não pertence automaticamente à pessoa: associe somente após declaração explícita de titularidade por `environment claim-legacy`, sem remover o original nem reativar revisões antigas. Para instalar skills de terceiros e plugins no perfil privado da máquina, siga `install-user-extension`; o projeto guarda referências de habilitação e o dashboard mostra o estado real.
 
 Depois de confirmar, revisar ou remover, recarregue o catálogo e informe que a revisão atual substitui o conjunto anterior. Deixe de aplicar skills removidas ou inativas. Nas próximas sessões os hooks disponibilizam o catálogo; o corpo continua sob demanda, sem promessa de aparecer em pickers nativos.
 

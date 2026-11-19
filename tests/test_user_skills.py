@@ -56,8 +56,7 @@ class UserSkillsCase(UserRulesCase):
         return self.skills.catalog_for(project or self.project, plugin_root=self.runtime)
 
     def skill_storage(self, project=None):
-        common = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=project))
-        return common / "gag-dev-team/user-skills"
+        return self.skills.storage_root(project or self.project)
 
     def skill_file(self):
         for path in self.skill_storage().rglob("SKILL.md"):
@@ -287,7 +286,10 @@ class UserSkillReviewTests(UserSkillsCase):
                 self.assert_skill_inactive(proposed["id"])
                 path.write_bytes(original)
         self.edit_skill_record(proposed["id"], origin="Tampered synthetic provenance")
-        self.assert_skill_inactive(proposed["id"])
+        loaded = self.skills.load_skill(self.project, proposed["id"], plugin_root=self.runtime)
+        self.assertEqual(loaded["skill"]["origin"], self.bundle["origin"])
+        self.assertEqual(loaded["skill"]["skill_md"], self.bundle["skill_md"])
+        self.assertEqual(loaded["skill"]["references"], self.bundle["references"])
 
     def test_symlinked_reference_is_inactive_even_when_external_bytes_match(self):
         proposed = self.propose_skill()

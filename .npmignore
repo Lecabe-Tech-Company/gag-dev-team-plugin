@@ -1,0 +1,13 @@
+node_modules/
+.next/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+*.log
+.env*
+dashboard/tests/
+test-results/
+playwright-report/
+users/
+events/
+runtime/

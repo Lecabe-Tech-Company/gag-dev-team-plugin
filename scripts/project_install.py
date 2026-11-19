@@ -108,13 +108,11 @@ def install(project, source=ROOT, harnesses=None, release_tag=None):
         writes[target] = contents
 
     # Runtime privado contém apenas os componentes distribuídos, sem cache ou testes.
-    for directory in ("agents", "skills", "hooks", "scripts", "ui", "mcp", "bin"):
-        for path in sorted((source / directory).rglob("*")):
-            if not path.is_file() or "__pycache__" in path.parts or path.name == ".gitkeep":
-                continue
-            relative = path.relative_to(source).as_posix()
-            managed(".gag-dev-team/plugin/" + relative, path.read_bytes())
-    for filename in ("plugin.json", "mcp.json"):
+    from distribution_files import distributed_files
+    for path in distributed_files(source):
+        relative = path.relative_to(source).as_posix()
+        managed(".gag-dev-team/plugin/" + relative, path.read_bytes())
+    for filename in ("package.json", "plugin.json", "mcp.json"):
         managed(".gag-dev-team/plugin/" + filename, (source / filename).read_bytes())
     profiles = sorted((source / "agents").glob("gag-*.toml"))
     if len(profiles) != 5:
@@ -191,7 +189,7 @@ def install_graphify(runtime):
             candidate = environment / "Scripts/graphify.exe"
             if not candidate.is_file():
                 subprocess.run([sys.executable, "-m", "venv", str(environment)], capture_output=True, check=True, timeout=60)
-                subprocess.run([str(python), "-m", "pip", "install", "graphifyy"], capture_output=True, check=True, timeout=240)
+                subprocess.run([str(python), "-m", "pip", "install", "graphifyy", "tree-sitter-css==0.25.0", "PyYAML==6.0.3"], capture_output=True, check=True, timeout=240)
             binary = str(candidate)
         if not binary:
             raise RuntimeError("Confira Graphify no PATH e tente novamente.")

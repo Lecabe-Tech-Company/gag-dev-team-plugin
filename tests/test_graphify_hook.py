@@ -162,7 +162,10 @@ class InstallerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary = root / "graphify"
-            binary.write_text("#!/bin/sh\necho graphify-test\n")
+            interpreter = root / "verified-python"
+            interpreter.write_text("#!/bin/sh\nif [ \"$1\" = '-c' ]; then [ \"$2\" = 'import tree_sitter_css, yaml' ]; else echo graphify-test; fi\n")
+            interpreter.chmod(0o755)
+            binary.write_text("#!" + str(interpreter) + "\n")
             binary.chmod(0o755)
             env = dict(os.environ, HOME=temp, PATH=str(root))
             result = subprocess.run(["/bin/bash", str(ROOT / "hooks/scripts/install-graphify.sh")],
@@ -176,7 +179,7 @@ class InstallerTests(unittest.TestCase):
             uv = root / "uv"
             uv.write_text(
                 "#!/bin/bash\n"
-                "if [[ \"$*\" == \"tool install graphifyy\" ]]; then\n"
+                "if [[ \"$*\" == \"tool install graphifyy --with tree-sitter-css==0.25.0 --with PyYAML==6.0.3\" ]]; then\n"
                 "  printf '#!/bin/sh\\necho graphify-test\n' > \"$HOME/graphify\"\n"
                 "  /bin/chmod +x \"$HOME/graphify\"\n"
                 "elif [[ \"$*\" == \"tool dir --bin\" ]]; then\n"
