@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version", "binding", "plugin_version", "revision", "as_of", "capabilities",
-    "environment", "rules", "skills", "sessions", "issues", "models", "extensions",
+    "environment", "rules", "skills", "sessions", "issues", "models", "token_usage", "extensions",
     "diagnostics", "events", "next_cursor"
   ],
   "properties": {
@@ -30,6 +30,7 @@
     "sessions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "issues": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "models": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "token_usage": { "type": "object", "additionalProperties": true },
     "extensions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "diagnostics": { "type": "array", "items": { "type": "string" } },
     "events": { "type": "array", "items": { "$ref": "environment-event.schema.json" } },
