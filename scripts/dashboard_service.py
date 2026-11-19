@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import time
+import uuid
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -103,7 +104,12 @@ def ensure_dashboard(binding: dict, plugin_root: Path | None = None) -> dict:
         except (OSError, ValueError):
             previous = {}
         if _healthy(previous, expected):
-            return {"status": "running", "reused": True, "url": f"http://127.0.0.1:{previous['port']}/#access_token={previous['token']}"}
+            try:
+                collector = ensure_token_usage_collector(binding, runtime, root)
+            except DashboardServiceError:
+                collector = {"status": "unavailable", "pid": None, "reused": False}
+            return {"status": "running", "reused": True, "collector": collector,
+                    "url": f"http://127.0.0.1:{previous['port']}/#access_token={previous['token']}"}
         node, npm = select_node()
         build = runtime / "builds" / fingerprint
         private_directory(build)
@@ -149,8 +155,119 @@ def ensure_dashboard(binding: dict, plugin_root: Path | None = None) -> dict:
         while time.monotonic() < deadline:
             if _healthy(state, expected):
                 atomic_private_write(state_path, json.dumps(state).encode("utf-8"))
-                return {"status": "running", "reused": False, "url": f"http://127.0.0.1:{port}/#access_token={token}"}
+                try:
+                    collector = ensure_token_usage_collector(binding, runtime, root)
+                except DashboardServiceError:
+                    collector = {"status": "unavailable", "pid": None, "reused": False}
+                return {"status": "running", "reused": False, "collector": collector,
+                        "url": f"http://127.0.0.1:{port}/#access_token={token}"}
             if process.poll() is not None:
                 break
             time.sleep(0.25)
         raise DashboardServiceError("The dashboard did not return its authenticated health identity. No unrelated process was stopped.")
+
+
+def ensure_token_usage_collector(binding: dict, runtime: Path, plugin_root: Path | None = None,
+                                 interval: int = 60) -> dict:
+    """Start one private polling worker tied to the authenticated dashboard health check."""
+    import datetime
+
+    if not 15 <= interval <= 600:
+        raise DashboardServiceError("The token collector interval is outside its safe range.")
+    worker = Path(plugin_root or ROOT).resolve() / "scripts" / "token_usage_collector.py"
+    if not worker.is_file() or worker.is_symlink():
+        return {"status": "unavailable", "pid": None, "reused": False}
+    state_path = runtime / "collector.json"
+    binding_path = runtime / "collector-binding.json"
+    private_directory(runtime)
+    with private_lock(runtime / "collector.lock"):
+        if state_path.is_symlink() or (hasattr(state_path, "is_junction") and state_path.is_junction()):
+            raise DashboardServiceError("The private token usage collector state is unsafe.")
+        try:
+            current = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            current = {}
+        process_id = current.get("pid")
+        heartbeat = current.get("last_check_at")
+        fresh = False
+        if isinstance(heartbeat, str):
+            try:
+                instant = datetime.datetime.fromisoformat(heartbeat.replace("Z", "+00:00"))
+                fresh = (datetime.datetime.now(datetime.timezone.utc) - instant).total_seconds() < interval * 4
+            except ValueError:
+                pass
+        if (isinstance(process_id, int) and not isinstance(process_id, bool) and process_id > 0
+                and fresh and _process_running(process_id)
+                and current.get("project_id") == binding["project_id"]
+                and current.get("user_id") == binding["user"]["id"]
+                and current.get("project_root") == binding["project_root"]):
+            return {"status": current.get("status", "starting"), "pid": process_id, "reused": True}
+        collector_id = uuid.uuid4().hex
+        try:
+            atomic_private_write(binding_path, json.dumps(binding, sort_keys=True).encode("utf-8"))
+        except Exception as error:
+            raise DashboardServiceError("The private token usage collector binding could not be written.") from error
+        state = {"pid": None, "collector_id": collector_id, "status": "starting", "project_id": binding["project_id"],
+                 "project_root": binding["project_root"], "user_id": binding["user"]["id"],
+                 "last_check_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        try:
+            atomic_private_write(state_path, json.dumps(state).encode("utf-8"))
+        except Exception as error:
+            raise DashboardServiceError("The private token usage collector state could not be written.") from error
+        environment = os.environ.copy()
+        options = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS} if os.name == "nt" else {"start_new_session": True}
+        process = subprocess.Popen([__import__("sys").executable, str(worker), "--binding-file", str(binding_path),
+                                    "--interval", str(interval), "--collector-id", collector_id],
+                                   cwd=Path(plugin_root or ROOT).resolve(), env=environment,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   **options)
+        state["pid"] = process.pid
+        state["last_check_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            atomic_private_write(state_path, json.dumps(state).encode("utf-8"))
+        except Exception as error:
+            raise DashboardServiceError("The private token usage collector state could not be written.") from error
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if state_path.is_symlink() or (hasattr(state_path, "is_junction") and state_path.is_junction()):
+                return {"status": "unavailable", "pid": None, "reused": False}
+            try:
+                current = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                current = {}
+            if current.get("collector_id") != collector_id:
+                return {"status": "unavailable", "pid": None, "reused": False}
+            if current.get("status") == "running":
+                return {"status": "running", "pid": process.pid, "reused": False}
+            if process.poll() is not None:
+                return {"status": "unavailable", "pid": None, "reused": False}
+            time.sleep(0.1)
+        return {"status": "starting", "pid": process.pid, "reused": False}
+
+
+def _process_running(process_id: int) -> bool:
+    if isinstance(process_id, bool) or not isinstance(process_id, int) or process_id < 1:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = kernel.OpenProcess(0x1000, False, process_id)
+        if not handle:
+            return False
+        exit_code = wintypes.DWORD()
+        try:
+            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(exit_code)) and exit_code.value == 259)
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(process_id, 0)
+        return True
+    except OSError:
+        return False

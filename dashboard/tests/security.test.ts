@@ -52,6 +52,7 @@ test("supported filters preserve caller values without accepting paths or other 
   const filters = new URLSearchParams({
     period: "7d", from: "2026-11-01T00:00:00Z", to: "2026-11-18T23:59:59Z",
     model: "synthetic-observed-model", category: "environment", status: "open", limit: "200",
+    goal_id: "goal-alpha", agent_id: "agent-root",
   });
   assert.deepEqual(parseSnapshotFilters(filters), Object.fromEntries(filters));
   assert.deepEqual(parseSnapshotFilters(new URLSearchParams()), {});

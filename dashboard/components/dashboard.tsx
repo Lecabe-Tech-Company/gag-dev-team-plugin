@@ -3,6 +3,8 @@
 import { Children, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { formatExtensionSource, type ExtensionSource } from "../lib/formatting";
+import { TokenUsageSection } from "./token-usage";
+import type { TokenUsage } from "../lib/token-usage";
 
 type Snapshot = {
   schema_version: number;
@@ -19,6 +21,7 @@ type Snapshot = {
   models: Array<ModelInfo & { attempt_count?: number | null; issue_count?: number | null; confirmed_model_issue_count?: number | null }>;
   extensions: Array<{ id: string; extension_id?: string; name?: string; kind?: string; state: string; version?: string; source?: ExtensionSource | null }>;
   diagnostics: string[];
+  token_usage?: TokenUsage | null;
   events: Array<{
     event_id: string;
     event_type: string;
@@ -55,13 +58,16 @@ type FilterValues = {
   model: string;
   category: string;
   status: string;
+  goal_id: string;
+  agent_id: string;
 };
 
-const initialFilters: FilterValues = { period: "30d", from: "", to: "", model: "", category: "", status: "" };
+const initialFilters: FilterValues = { period: "30d", from: "", to: "", model: "", category: "", status: "", goal_id: "", agent_id: "" };
 const navigationItems = [
   { id: "overview", label: "Visão geral", icon: "home-2" },
   { id: "personal-context", label: "Regras e skills", icon: "book" },
   { id: "activity", label: "Atividade", icon: "activity" },
+  { id: "token-usage", label: "Consumo", icon: "activity" },
   { id: "models", label: "Modelos", icon: "cpu" },
   { id: "extensions", label: "Extensões", icon: "hierarchy-2" },
 ] as const satisfies Array<{ id: string; label: string; icon: IconName }>;
@@ -162,6 +168,13 @@ export default function Dashboard() {
     () => snapshot?.events.filter((event) => event.event_type.startsWith("issue.") && event.issue_id && issueIds.has(event.issue_id)).slice().reverse() ?? [],
     [snapshot, issueIds],
   );
+  const agentFilterOptions = useMemo(() => {
+    const agentsById = new Map<string, { id: string; name: string }>();
+    for (const agent of snapshot?.token_usage?.agents ?? []) {
+      if (!agentsById.has(agent.id)) agentsById.set(agent.id, { id: agent.id, name: agent.name });
+    }
+    return [...agentsById.values()];
+  }, [snapshot?.token_usage?.agents]);
 
   function updateFilter(name: keyof FilterValues, value: string) {
     setFilterError("");
@@ -241,7 +254,7 @@ export default function Dashboard() {
           </section>
 
           <form className="filter-panel" onSubmit={applyFilters}>
-            <div className="filter-heading"><div><strong className="filter-title"><Icon name="filter" size={17} /> Filtrar atividade</strong><span>Período, modelo e categoria filtram eventos; status também limita listas. O contexto pessoal mostra o estado atual.</span></div><button className="text-button" type="button" onClick={() => { setFilters(initialFilters); setFilterError(""); if (token) void loadSnapshot(token, initialFilters); }}>Limpar filtros</button></div>
+            <div className="filter-heading"><div><strong className="filter-title"><Icon name="filter" size={17} /> Filtrar atividade</strong><span>Período, modelo e categoria filtram eventos; status também limita listas. Objetivo e agente filtram o consumo.</span></div><button className="text-button" type="button" onClick={() => { setFilters(initialFilters); setFilterError(""); if (token) void loadSnapshot(token, initialFilters); }}>Limpar filtros</button></div>
             <div className="filter-grid">
               <label>Período<select value={filters.period} onChange={(event) => updateFilter("period", event.target.value)}><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="all">Todo o histórico</option></select></label>
               <label>De<input type="date" value={filters.from} onChange={(event) => updateFilter("from", event.target.value)} aria-invalid={Boolean(filterError)} aria-describedby={filterError ? "date-filter-error" : undefined} /></label>
@@ -250,6 +263,10 @@ export default function Dashboard() {
               <label>Categoria<select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}><option value="">Todas</option>{categoryOptions.map((category) => <option value={category} key={category}>{displayValue(category)}</option>)}</select></label>
               <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">Todos</option>{statusOptions.map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}</select></label>
               <button className="button-primary filter-submit" type="submit" disabled={!token || loading}>{loading ? "Carregando…" : "Aplicar filtros"}</button>
+            </div>
+            <div className="token-filter-grid" aria-label="Filtros de consumo de tokens">
+              <label>Objetivo<select value={filters.goal_id} onChange={(event) => updateFilter("goal_id", event.target.value)}><option value="">Todos os objetivos</option>{(snapshot?.token_usage?.goals ?? []).map((goal) => <option value={goal.id} key={goal.id}>{goal.name}</option>)}</select></label>
+              <label>Agente<select value={filters.agent_id} onChange={(event) => updateFilter("agent_id", event.target.value)}><option value="">Todos os agentes</option>{agentFilterOptions.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}</select></label>
             </div>
             {filterError && <p className="filter-error" id="date-filter-error" role="alert">{filterError}</p>}
           </form>
@@ -261,6 +278,8 @@ export default function Dashboard() {
               <MetricCard label="Sessões em andamento" value={activeSessionCount} note={`${snapshot.sessions.length} registradas`} icon="activity" tone="green" />
               <MetricCard label="Eventos de problemas" value={issueEvents.length} note="Até 200 itens da consulta" icon="warning-2" tone="orange" />
             </div>
+
+            <TokenUsageSection usage={snapshot.token_usage} refreshing={loading} />
 
             <div className="section-grid" id="personal-context">
               <Panel title="Regras do usuário" subtitle="Orientações ativas no contexto pessoal" count={snapshot.rules.length}>

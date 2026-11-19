@@ -365,7 +365,13 @@ class EnglishGateTests(unittest.TestCase):
     def test_css_native_contracts_and_frontend_text_are_allowed(self):
         self.commit({"dashboard/styles.css": ".order-card { --row-gap: 8px; display: grid; gap: var(--row-gap); }\n"
                                             ".order-card::before { content: 'Pedidos'; }\n"
-                                            "@media (min-width: 40rem) { .order-card { display: block; } }\n"})
+                                            "@media (min-width: 40rem) { .order-card { display: block; } }\n"
+                                            "h3 { font-size: 1rem; }\n",
+                     "dashboard/token_panel.tsx": "export const roles = { orchestrator: 'Orquestrador', subagent: 'Subagente' };\n"
+                                                  "export function TokenPanel() { return <h3>{roles.orchestrator}</h3>; }\n",
+                     "dashboard/platform_roots.py": "WINDOWS_ROOTS = {'USERPROFILE': 'home', 'LOCALAPPDATA': 'data'}\n"
+                                                     "STATE_MAP = {'unlinked': 'closed'}\n"
+                                                     "def file_identity(state):\n    return state.st_ino\n"})
         self.analyze()
 
     def test_css_custom_identifiers_and_new_file_names_remain_english(self):

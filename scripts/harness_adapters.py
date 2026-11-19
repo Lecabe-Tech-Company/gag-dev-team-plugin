@@ -81,6 +81,8 @@ def guidance():
         "de compatibilidade. Aproveite respostas já dadas, esclareça dúvidas relevantes e preserve os sete "
         "subtítulos e o aceite do SDD. Não varra históricos de chats nem execute scripts automaticamente.\n"
         "Use ensure-dashboard para verificar ou subir o dashboard local e comunicar sua URL protegida. "
+        "Para objetivos explícitos, use track-token-usage para registrar IDs de thread confirmados pelo host; "
+        "a coleta automática acompanha somente fontes registradas enquanto o dashboard local está saudável. "
         "Use record-agent-issue para registrar problemas, tentativas e resoluções sanitizados, com origem "
         "honesta do modelo. O histórico é imutável e separado por host e ID GitHub autenticado; nunca apague "
         "dados nem atribua dados legados a uma pessoa sem declaração de titularidade. Use install-user-extension "
