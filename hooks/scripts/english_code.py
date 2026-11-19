@@ -38,6 +38,8 @@ TECHNICAL_WORDS = {
     "describedby",  # Standard aria-describedby accessibility attribute.
     # Exact Windows environment keys, Python stat field, and backend link state.
     "userprofile", "localappdata", "ino", "unlinked",
+    # Exact ctypes and Win32 SDK type/function signature contracts.
+    "argtypes", "byref", "ctypes", "dll", "dword", "restype", "wintypes",
     # Standard-library, operating-system, Git, and skill-format contracts.
     "argparse", "dest", "dirname", "isatty", "prog", "subparsers",
     "abspath", "bool", "contextmanager", "copyfile", "copytree", "creat", "datetime", "dirs",

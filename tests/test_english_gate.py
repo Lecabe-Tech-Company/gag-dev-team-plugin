@@ -371,6 +371,11 @@ class EnglishGateTests(unittest.TestCase):
                                                   "export function TokenPanel() { return <h3>{roles.orchestrator}</h3>; }\n",
                      "dashboard/platform_roots.py": "WINDOWS_ROOTS = {'USERPROFILE': 'home', 'LOCALAPPDATA': 'data'}\n"
                                                      "STATE_MAP = {'unlinked': 'closed'}\n"
+                                                     "import ctypes\nfrom ctypes import wintypes\n"
+                                                     "kernel = ctypes.WinDLL('kernel32')\n"
+                                                     "kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)\n"
+                                                     "kernel.OpenProcess.restype = wintypes.HANDLE\n"
+                                                     "exit_code = wintypes.DWORD()\nctypes.byref(exit_code)\n"
                                                      "def file_identity(state):\n    return state.st_ino\n"})
         self.analyze()
 
