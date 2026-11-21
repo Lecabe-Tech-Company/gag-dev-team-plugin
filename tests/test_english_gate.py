@@ -77,6 +77,20 @@ class EnglishGateTests(unittest.TestCase):
         with patch.object(self.hook, "run", side_effect=self.fake_run):
             return self.hook.analyze_pr(self.request, self.graphify_binary)
 
+    def test_blade_code_is_verified_before_graph_extraction(self):
+        self.commit({"resources/views/header.blade.php": "<h2>Relatório</h2>\n{{ $quantidade }}\n"})
+        with self.assertRaises(self.hook.GateError) as denied:
+            self.analyze()
+        self.assertIn("header.blade.php:2:", str(denied.exception))
+        self.assertEqual(self.graphify_calls, 0)
+
+    def test_blade_english_code_is_included_in_full_gate(self):
+        self.commit({"resources/views/header.blade.php": "<h2>Relatório</h2>\n{{ $orderCount }}\n"})
+        self.analyze()
+        record = json.loads((self.root / "graphify-out/pr-check/prod/check.json").read_text())
+        self.assertIn("resources/views/header.blade.php", record["analyzed"])
+        self.assertEqual(self.graphify_calls, 1)
+
     def test_unaccented_and_mixed_identifiers_block_with_source_location(self):
         cases = (
             ("orders.py", "def calculate_total(pedido):\n    return pedido\n"),

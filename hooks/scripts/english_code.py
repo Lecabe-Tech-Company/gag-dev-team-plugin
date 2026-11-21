@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 DICTIONARY = ROOT / "language_data" / "en_US.txt"
 DICTIONARY_SHA256 = "4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04"
 SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml", ".css", ".sh", ".bash", ".yaml", ".yml"}
+SUPPORTED_EXTENSIONS.add(".blade.php")
 NON_ENGLISH_HOMOGRAPHS = {"nome", "dados", "valor", "valores"}
 TECHNICAL_WORDS = {
     # npm package-lock schema contract.
@@ -97,6 +98,204 @@ _DICTIONARY_CACHE = {}
 
 class LanguageCheckError(RuntimeError):
     """Raised when changed code cannot be analyzed with the bundled resources."""
+
+
+_BLADE_DIRECTIVES_WITH_ARGUMENTS = {
+    "auth", "can", "cannot", "cannotany", "canany", "checked", "class", "component",
+    "else", "elseif", "env", "error", "extends", "foreach", "forelse", "guest", "if",
+    "isset", "json", "method", "props", "selected", "section", "slot", "switch", "unless",
+    "unset", "unlessguest", "while", "include", "includeif", "includewhen", "includeunless",
+    "includefirst", "each", "aware", "pushif", "prependif", "pushonce", "once", "use",
+}
+_BLADE_DIRECTIVES_WITHOUT_ARGUMENTS = {
+    "else", "endif", "endunless", "endisset", "endempty", "endauth", "endcan", "endcannot",
+    "endcanany", "endguest", "endproduction", "endenv", "endsection", "show", "stop", "append",
+    "overwrite", "parent", "endpush", "endprepend", "endpushonce", "endonce", "break", "continue",
+    "endforeach", "endforelse", "endwhile", "default", "endswitch", "endphp", "endcomponent",
+    "endverbatim", "csrf", "production", "stack",
+}
+
+
+def _blade_php_source(content, path):
+    """Expose Blade PHP expressions to the PHP parser while retaining source lines."""
+    if re.search(r"<\s*/?\s*script\b|<\s*/?\s*style\b|\s(?:x-[\w:-]+|on[a-z]+)\s*=|\s+wire:[\w.-]+\s*=\s*(?:[^\"']|[\"']\s*[^\"'])", content, re.I):
+        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': embedded JavaScript or Alpine expressions are unsupported.")
+    replacements = []
+
+    def replace(start, end, replacement):
+        if content[start:end].count("\n") != replacement.count("\n"):
+            raise LanguageCheckError(f"Cannot preserve source lines while analyzing Blade file '{path}'.")
+        replacements.append((start, end, replacement))
+
+    def find_delimiter(start, delimiter):
+        quote = None
+        escaped = False
+        line_comment = False
+        block_comment = False
+        for position in range(start, len(content)):
+            pair = content[position:position + 2]
+            if line_comment:
+                if content[position] == "\n":
+                    line_comment = False
+                continue
+            if block_comment:
+                if pair == "*/":
+                    block_comment = False
+                continue
+            if quote:
+                if escaped:
+                    escaped = False
+                elif content[position] == "\\":
+                    escaped = True
+                elif content[position] == quote:
+                    quote = None
+                continue
+            if pair == "//" or content[position] == "#":
+                line_comment = True
+                continue
+            if pair == "/*":
+                block_comment = True
+                continue
+            if content[position] in "\"'`":
+                quote = content[position]
+                continue
+            if content.startswith(delimiter, position):
+                return position
+        return None
+
+    index = 0
+    directive_stack = []
+    while index < len(content):
+        if content.startswith("{{--", index):
+            close = content.find("--}}", index + 4)
+            if close < 0:
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unclosed Blade comment.")
+            end = close + 4
+            comment = content[index:end]
+            neutralized = "".join("\n" if character == "\n" else " " for character in comment)
+            replace(index, end, neutralized)
+            index = end
+            continue
+        if content.startswith("@@", index):
+            index += 2
+            continue
+        if content[index] == ":" and index > 0 and content[index - 1] in " \t\n":
+            binding = re.match(r":([A-Za-z][A-Za-z0-9_-]*)\s*=\s*([\"'])(.*?)\2", content[index:], re.S)
+            if binding:
+                value_start = index + binding.start(3)
+                value_end = index + binding.end(3)
+                replace(value_start - 1, value_start, "<?php ")
+                replace(value_end, value_end + 1, "; ?>")
+                index = value_end + 1
+                continue
+            if re.match(r":[A-Za-z][A-Za-z0-9_-]*\s*=", content[index:]):
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed bound attribute.")
+        if content.startswith("{{", index) or content.startswith("{!!", index):
+            opening = 3 if content.startswith("{!!", index) else 2
+            closing = "!!}" if opening == 3 else "}}"
+            close_at = find_delimiter(index + opening, closing)
+            if close_at is None:
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unclosed echo expression.")
+            replace(index, index + opening, "<?php ")
+            replace(close_at, close_at + len(closing), "; ?>")
+            index = close_at + len(closing)
+            continue
+        if content.startswith("@php", index) and (index + 4 == len(content) or not content[index + 4].isalnum()):
+            close_at = find_delimiter(index + 4, "@endphp")
+            if close_at is None:
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unclosed @php block.")
+            block_start = index + 4
+            block_end = close_at
+            replace(block_end, block_end + len("@endphp"), "?>")
+            replace(index, block_start, "<?php")
+            index = block_end + len("@endphp")
+            continue
+        if content[index] == "@":
+            directive = re.match(r"@([A-Za-z][A-Za-z0-9_]*)", content[index:])
+            if directive:
+                name = directive.group(1).lower()
+                end = index + directive.end()
+                if name in {"php", "endphp", "verbatim", "endverbatim"}:
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported @{name} block.")
+                if name not in _BLADE_DIRECTIVES_WITH_ARGUMENTS and name not in _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS:
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported @{name} directive.")
+                if name in _BLADE_DIRECTIVES_WITH_ARGUMENTS:
+                    cursor = end
+                    while cursor < len(content) and content[cursor].isspace():
+                        cursor += 1
+                    if cursor >= len(content) or content[cursor] != "(":
+                        if name in {"else"}:
+                            index = end
+                            continue
+                        if name in _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS:
+                            index = end
+                            continue
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} directive has no parseable expression.")
+                    if name in {"for", "forelse"}:
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} control syntax is unsupported.")
+                    depth = 0
+                    quote = None
+                    escaped = False
+                    close_at = None
+                    for position in range(cursor, len(content)):
+                        character = content[position]
+                        if quote:
+                            if escaped:
+                                escaped = False
+                            elif character == "\\":
+                                escaped = True
+                            elif character == quote:
+                                quote = None
+                            continue
+                        if character in "\"'`":
+                            quote = character
+                        elif character == "(":
+                            depth += 1
+                        elif character == ")":
+                            depth -= 1
+                            if depth == 0:
+                                close_at = position
+                                break
+                    if close_at is None or quote:
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed @{name} expression.")
+                    if name in {"if", "unless", "foreach", "while", "switch"}:
+                        directive_stack.append(name)
+                    prefix = "<?php "
+                    suffix = "; ?>"
+                    if name in {"if", "elseif", "unless", "while", "foreach", "switch", "can", "cannot", "canany", "cannotany"}:
+                        keyword = "if" if name == "unless" else name
+                        expression = content[cursor + 1:close_at]
+                        if name == "unless":
+                            expression = "! (" + expression + ")"
+                        prefix = "<?php " + keyword + " ("
+                        suffix = "): ?>" if name in {"if", "elseif", "unless", "while", "foreach", "switch"} else "; ?>"
+                    replace(index, cursor + 1, prefix)
+                    replace(close_at, close_at + 1, suffix)
+                    index = close_at + 1
+                    continue
+                cursor = end
+                while cursor < len(content) and content[cursor].isspace():
+                    cursor += 1
+                if cursor < len(content) and content[cursor] == "(":
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} does not accept arguments.")
+                if name in {"else", "endif", "endunless", "endforeach", "endforelse", "endwhile", "endswitch"}:
+                    expected = {"endif": {"if", "unless"}, "endunless": {"unless"}, "endforeach": {"foreach"},
+                                "endforelse": {"forelse"}, "endwhile": {"while"}, "endswitch": {"switch"}}
+                    if name in expected:
+                        if not directive_stack or directive_stack[-1] not in expected[name]:
+                            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unmatched @{name} directive.")
+                        directive_stack.pop()
+                    statement = {"else": "else:", "endif": "endif;", "endunless": "endif;", "endforeach": "endforeach;", "endforelse": "endfor;", "endwhile": "endwhile;", "endswitch": "endswitch;"}[name]
+                    replace(index, end, "<?php " + statement + " ?>")
+                index = end
+                continue
+        index += 1
+    if directive_stack:
+        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unclosed @{directive_stack[-1]} directive.")
+    output = content
+    for start, end, replacement in sorted(replacements, reverse=True):
+        output = output[:start] + replacement + output[end:]
+    return output
 
 
 def load_dictionary():
@@ -921,16 +1120,18 @@ def validate_changes(changed_files, graphify_binary=None):
         if content is None:
             continue
         extension = Path(path).suffix.lower()
-        if path.lower().endswith(".blade.php"):
-            raise LanguageCheckError(f"Cannot verify changed code file '{path}': Blade syntax is unsupported.")
-        if extension not in SUPPORTED_EXTENSIONS:
+        is_blade = path.lower().endswith(".blade.php")
+        if extension not in SUPPORTED_EXTENSIONS and not is_blade:
             raise LanguageCheckError(f"Cannot verify changed code file '{path}': unsupported language.")
         if not isinstance(content, str):
             raise LanguageCheckError(f"Cannot decode changed code file '{path}'.")
         added_lines = changed_file.get("added_lines")
         if not isinstance(added_lines, (set, list, tuple)):
             raise LanguageCheckError(f"Cannot verify changed lines in '{path}'.")
-        if extension == ".py":
+        if is_blade:
+            tree_sitter_sources[path] = _blade_php_source(content, path)
+            identifiers = []
+        elif extension == ".py":
             identifiers = _python_identifiers(content, path)
         elif extension in (".json", ".toml"):
             identifiers = _config_identifiers(content, path)

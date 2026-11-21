@@ -1,0 +1,78 @@
+@php
+    $active = $this->getActiveSectorDashboard();
+    $available = $this->getAvailableSectorDashboards();
+    $presentation = \Modules\Management\Filament\Support\SectorDashboardPages::forSector($active);
+    $compactHeader = $active->value === 'teste' || ($presentation !== null && is_subclass_of(
+        $presentation,
+        \Modules\Management\Contracts\CompactSectorDashboardPresentation::class,
+    ));
+@endphp
+
+<div class="fi-page">
+    <div class="renew-dashboard-shell fi-fixed-positioning-context w-full min-w-0 space-y-4 sm:space-y-6">
+        {{ $this->backofficeDashboardLinks }}
+
+        <div @class(['renew-dashboard-hero p-4 sm:p-5 md:p-6' => ! $compactHeader])>
+            <div @class([
+                'relative z-10 flex flex-col gap-4',
+                'sm:flex-row sm:flex-wrap sm:items-center sm:justify-between' => $compactHeader,
+            ])>
+                <div class="space-y-1">
+                    @if ($compactHeader)
+                        <h2 class="text-xl font-semibold tracking-tight text-gray-950 sm:text-2xl dark:text-gray-50">
+                            Dashboard {{ $active->getLabel() }}
+                        </h2>
+                    @else
+                        <p class="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500 dark:text-gray-400">
+                            Dashboard
+                        </p>
+                        <h2 class="text-xl font-semibold tracking-tight text-gray-950 min-[480px]:text-2xl dark:text-gray-50">
+                            {{ $active->getLabel() }}
+                        </h2>
+                    @endif
+                </div>
+
+                @if (count($available) > 1)
+                    <div @class(['flex flex-wrap gap-2', 'sm:ml-auto sm:justify-end' => $compactHeader])>
+                        @foreach ($available as $option)
+                            <a
+                                href="?dashboard={{ $option->value }}"
+                                wire:navigate
+                                @class([
+                                    'rounded-lg px-3 py-1.5 text-sm font-medium',
+                                    'bg-primary-600 text-white' => $option === $active,
+                                    'bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200' => $option !== $active,
+                                ])
+                            >
+                                {{ $option->getLabel() }}
+                            </a>
+                        @endforeach
+                    </div>
+                @endif
+
+                @unless ($compactHeader)
+                    <form wire:submit.prevent="" class="relative">
+                        {{ $this->filtersForm }}
+                    </form>
+                @endunless
+            </div>
+        </div>
+
+        @if ($compactHeader)
+            <form wire:submit.prevent="" class="relative">
+                {{ $this->filtersForm }}
+            </form>
+        @endif
+
+        @if ($this->hasSectorDashboardPresentation())
+            {{ $this->sectorWidgets }}
+        @else
+            <x-filament-widgets::widgets
+                :columns="['default' => 1, 'md' => 6, 'lg' => 12]"
+                class="gap-4 sm:gap-6"
+                :widgets="$this->getSectorDashboardWidgets()"
+                :data="['pageFilters' => $this->filters]"
+            />
+        @endif
+    </div>
+</div>
