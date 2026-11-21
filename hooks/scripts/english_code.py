@@ -121,11 +121,110 @@ _BLADE_END_WHILE = "endwhile"
 _BLADE_END_SWITCH = "endswitch"
 
 
-def _blade_php_source(content, path):
-    """Expose Blade PHP expressions to the PHP parser while retaining source lines."""
-    if re.search(r"<\s*/?\s*script\b|<\s*/?\s*style\b|\s(?:x-[\w:-]+|on[a-z]+)\s*=|\s+wire:[\w.-]+\s*=\s*(?:[^\"']|[\"']\s*[^\"'])", content, re.I):
-        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': embedded JavaScript or Alpine expressions are unsupported.")
+_BLADE_SCRIPT_TAG = re.compile(r"<\s*/?\s*script\b", re.I)
+_BLADE_SCRIPT_OPEN = re.compile(r"""<script(?:\s+type\s*=\s*(?:"(?:module|text/javascript)"|'(?:module|text/javascript)'))?\s*>""", re.I)
+_BLADE_SCRIPT_CLOSE = re.compile(r"</\s*script\b[^>]*>", re.I)
+_BLADE_SCRIPT_WRAPPER = re.compile(r"@script\b")
+_BLADE_SCRIPT_WRAPPER_END = re.compile(r"\s*@endscript\b")
+_BLADE_SCRIPT_MARKUP = re.compile(r"<\?|{{--|{{|{!!|@[A-Za-z][A-Za-z0-9_]*")
+_BLADE_SCRIPT_JSON = re.compile(r"@json[ \t]*\(")
+
+
+def _blank_source(content):
+    return re.sub(r"[^\n]", " ", content)
+
+
+def _blade_expression_end(content, start):
+    """Find the end of a parenthesized PHP expression without running PHP."""
+    depth = 1
+    quote = None
+    cursor = start
+    while cursor < len(content):
+        character = content[cursor]
+        pair = content[cursor:cursor + 2]
+        if quote:
+            if character == "\\":
+                cursor += 2
+                continue
+            if character == quote:
+                quote = None
+        elif pair == "/*":
+            close = content.find("*/", cursor + 2)
+            if close < 0:
+                return None
+            cursor = close + 2
+            continue
+        elif pair == "//" or character == "#" and pair != "#[":
+            close = content.find("\n", cursor + 1)
+            if close < 0:
+                return None
+            cursor = close + 1
+            continue
+        elif character in "\"'`":
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return cursor
+        cursor += 1
+    return None
+
+
+def _blade_script_source(content, index, path):
+    """Project one supported script into separate JavaScript and PHP sources."""
+    wrapper = _BLADE_SCRIPT_WRAPPER.match(content, index)
+    tag_start = index
+    if wrapper:
+        tag_start = len(content) - len(content[wrapper.end():].lstrip())
+    opening = _BLADE_SCRIPT_OPEN.match(content, tag_start)
+    if not opening:
+        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported script opening.")
+    closing = _BLADE_SCRIPT_CLOSE.search(content, opening.end())
+    if not closing or not re.fullmatch(r"</script\s*>", closing.group(), re.I):
+        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed or unclosed script block.")
+    end = closing.end()
+    if wrapper:
+        wrapper_end = _BLADE_SCRIPT_WRAPPER_END.match(content, end)
+        if not wrapper_end:
+            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': expected @endscript after the script.")
+        end = wrapper_end.end()
+
+    body = content[opening.end():closing.start()]
+    javascript = ["\n" * content.count("\n", 0, opening.end())]
+    php = [_blank_source(content[index:opening.end()])]
+    expressions = []
+    offset = len(javascript[0])
+    cursor = 0
+    while marker := _BLADE_SCRIPT_MARKUP.search(body, cursor):
+        directive = _BLADE_SCRIPT_JSON.match(body, marker.start())
+        if not directive:
+            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported Blade syntax inside JavaScript.")
+        close_at = _blade_expression_end(body, directive.end())
+        if close_at is None or not body[directive.end():close_at].strip():
+            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed @json expression.")
+        preceding = body[cursor:marker.start()]
+        javascript.append(preceding)
+        php.append(_blank_source(preceding))
+        offset += len(preceding.encode("utf-8"))
+        expressions.append(offset)
+        expression = body[directive.end():close_at]
+        replacement = "null" + "\n" * expression.count("\n")
+        javascript.append(replacement)
+        php.append("<?php json_encode(" + expression + "); ?>")
+        offset += len(replacement)
+        cursor = close_at + 1
+
+    javascript.append(body[cursor:])
+    php.append(_blank_source(body[cursor:] + content[closing.start():end]))
+    return end, "".join(php), ("".join(javascript), expressions)
+
+
+def _blade_sources(content, path):
+    """Expose Blade PHP and JavaScript while retaining original line numbers."""
     replacements = []
+    scripts = []
 
     def replace(start, end, replacement):
         if content[start:end].count("\n") != replacement.count("\n"):
@@ -183,6 +282,12 @@ def _blade_php_source(content, path):
             continue
         if content.startswith("@@", index):
             index += 2
+            continue
+        if _BLADE_SCRIPT_TAG.match(content, index) or _BLADE_SCRIPT_WRAPPER.match(content, index):
+            end, php, script = _blade_script_source(content, index, path)
+            replace(index, end, php)
+            scripts.append(script)
+            index = end
             continue
         if content[index] == ":" and index > 0 and content[index - 1] in " \t\n":
             binding = re.match(r":([A-Za-z][A-Za-z0-9_-]*)\s*=\s*([\"'])(.*?)\2", content[index:], re.S)
@@ -304,7 +409,9 @@ def _blade_php_source(content, path):
     output = content
     for start, end, replacement in sorted(replacements, reverse=True):
         output = output[:start] + replacement + output[end:]
-    return output
+    if re.search(r"<\s*/?\s*style\b|\s(?:x-[\w:-]+|on[a-z]+)\s*=|\s+wire:[\w.-]+\s*=\s*(?:[^\"']|[\"']\s*[^\"'])", output, re.I):
+        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': embedded CSS, JavaScript handlers or Alpine expressions are unsupported.")
+    return output, scripts
 
 
 def load_dictionary():
@@ -385,11 +492,14 @@ def _tree_sitter_interpreter(graphify_binary):
     raise LanguageCheckError("Tree-sitter grammars for the changed language are unavailable; install Graphify and retry.")
 
 
-def _parse_tree_sitter_files(files, graphify_binary):
+def _parse_tree_sitter_files(files, graphify_binary, expression_offsets):
     if not files:
         return {}
     interpreter = _tree_sitter_interpreter(graphify_binary)
-    request = [{"path": path, "content": content} for path, content in files.items()]
+    request = [
+        {"path": path, "content": content, "expression_offsets": expression_offsets.get(path, [])}
+        for path, content in files.items()
+    ]
     try:
         result = subprocess.run(
             [interpreter, "-I", str(Path(__file__).resolve()), "parse-tree-sitter"],
@@ -478,9 +588,12 @@ def _parse_tree_sitter_request():
             workbook_row_helpers = _workbook_row_helper_names(tree.root_node)
             workbook_row_variables = _workbook_row_variables(tree.root_node, workbook_row_helpers)
             identifiers = []
+            expression_offsets = set(item.get("expression_offsets", []))
             stack = [tree.root_node]
             while stack:
                 node = stack.pop()
+                if node.type == "null":
+                    expression_offsets.discard(node.start_byte)
                 if extension in {".sh", ".bash"}:
                     if node.type in {"variable_name", "function_name"} or (node.parent and node.parent.type == "function_definition" and node.parent.child_by_field_name("name") == node):
                         identifiers.append({"line": node.start_point.row + 1, "name": node.text.decode("utf-8")})
@@ -501,7 +614,15 @@ def _parse_tree_sitter_request():
                     "namespace_name", "named_label", "constant", "class_name",
                 }:
                     value = source[node.start_byte:node.end_byte].decode("utf-8")
-                    identifiers.append({"line": node.start_point.row + 1, "name": value})
+                    livewire_assertion = (
+                        extension == ".php"
+                        and value == "assertDontSeeHtml"
+                        and "tests" in Path(path).parts
+                        and node.parent.type == "member_call_expression"
+                        and node.parent.child_by_field_name("name") == node
+                    )
+                    if not livewire_assertion:
+                        identifiers.append({"line": node.start_point.row + 1, "name": value})
                 if node.type in {"pair", "property_assignment", "pair_pattern"} and node.named_child_count:
                     key_node = node.named_children[0]
                     if key_node.type in {"string", "string_content"}:
@@ -538,6 +659,8 @@ def _parse_tree_sitter_request():
                         if key_value:
                             identifiers.append({"line": key_node.start_point.row + 1, "name": key_value})
                 stack.extend(reversed(node.children))
+            if expression_offsets:
+                raise ValueError("Blade JSON must occupy a JavaScript expression")
             result[path] = identifiers
     except Exception:
         return 2
@@ -1121,6 +1244,8 @@ def validate_changes(changed_files, graphify_binary=None):
     dictionary = load_dictionary()
     diagnostics = []
     tree_sitter_sources = {}
+    expression_offsets = {}
+    scripts_by_path = {}
     for changed_file in changed_files:
         path = changed_file["path"]
         content = changed_file.get("content")
@@ -1138,7 +1263,15 @@ def validate_changes(changed_files, graphify_binary=None):
         if not isinstance(added_lines, (set, list, tuple)):
             raise LanguageCheckError(f"Cannot verify changed lines in '{path}'.")
         if is_blade:
-            tree_sitter_sources[path] = _blade_php_source(content, path)
+            php_source, scripts = _blade_sources(content, path)
+            tree_sitter_sources[path] = php_source
+            scripts_by_path[path] = []
+            for index, (script, offsets) in enumerate(scripts):
+                # A leading slash reserves these internal keys outside repository paths.
+                script_path = f"/{path}.{index}.js"
+                scripts_by_path[path].append(script_path)
+                tree_sitter_sources[script_path] = script
+                expression_offsets[script_path] = offsets
             identifiers = []
         elif extension == ".py":
             identifiers = _python_identifiers(content, path)
@@ -1148,12 +1281,13 @@ def validate_changes(changed_files, graphify_binary=None):
             tree_sitter_sources[path] = content
             identifiers = []
         diagnostics.extend(_check_identifiers(path, identifiers, set(added_lines), dictionary))
-    parsed_sources = _parse_tree_sitter_files(tree_sitter_sources, graphify_binary)
+    parsed_sources = _parse_tree_sitter_files(tree_sitter_sources, graphify_binary, expression_offsets)
     for changed_file in changed_files:
         path = changed_file["path"]
-        if path in parsed_sources:
-            identifiers = [(item["line"], item["name"]) for item in parsed_sources[path]]
-            diagnostics.extend(_check_identifiers(path, identifiers, set(changed_file["added_lines"]), dictionary))
+        for source_path in [path, *scripts_by_path.get(path, [])]:
+            if source_path in parsed_sources:
+                identifiers = [(item["line"], item["name"]) for item in parsed_sources[source_path]]
+                diagnostics.extend(_check_identifiers(path, identifiers, set(changed_file["added_lines"]), dictionary))
     return list(dict.fromkeys(diagnostics))
 
 

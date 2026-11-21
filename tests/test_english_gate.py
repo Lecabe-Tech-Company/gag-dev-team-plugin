@@ -91,6 +91,34 @@ class EnglishGateTests(unittest.TestCase):
         self.assertIn("resources/views/header.blade.php", record["analyzed"])
         self.assertEqual(self.graphify_calls, 1)
 
+    def test_blade_javascript_is_verified_before_graph_extraction(self):
+        self.commit({"resources/views/header.blade.php": "<h2>Relatório</h2>\n<script>\nconst quantidade = 1;\n</script>\n"})
+        with self.assertRaises(self.hook.GateError) as denied:
+            self.analyze()
+        self.assertIn("header.blade.php:3:", str(denied.exception))
+        self.assertIn("'quantidade'", str(denied.exception))
+        self.assertEqual(self.graphify_calls, 0)
+
+    def test_blade_javascript_and_json_are_included_in_full_gate(self):
+        self.commit({"resources/views/header.blade.php": """@script
+<script>
+const chartUrl = @json(asset('js/vendor/chart.umd.min.js'));
+const message = 'Produção acumulada';
+</script>
+@endscript
+"""})
+        self.analyze()
+        record = json.loads((self.root / "graphify-out/pr-check/prod/check.json").read_text())
+        self.assertIn("resources/views/header.blade.php", record["language"]["checked"])
+        self.assertEqual(record["language"]["result"], "passed")
+        self.assertEqual(self.graphify_calls, 1)
+
+    def test_invalid_blade_javascript_blocks_graph_extraction(self):
+        self.commit({"resources/views/header.blade.php": "<script>const orderCount = ;</script>\n"})
+        with self.assertRaises(self.hook.GateError):
+            self.analyze()
+        self.assertEqual(self.graphify_calls, 0)
+
     def test_unaccented_and_mixed_identifiers_block_with_source_location(self):
         cases = (
             ("orders.py", "def calculate_total(pedido):\n    return pedido\n"),
@@ -527,6 +555,25 @@ class CsvDownloader {
     }
 }
 """, path="exports/csv_downloader.php")
+
+    def test_livewire_negative_html_assertion_is_accepted_in_tests(self):
+        self.assert_accepted("""<?php
+$component->assertDontSeeHtml('data-period-alert=');
+""", path="Modules/Diagnosis/tests/Feature/DashboardTest.php")
+
+    def test_livewire_assertion_contract_does_not_exempt_other_identifiers(self):
+        for source, path in (
+            ("<?php $component->assertDontSeeHtml('data-period-alert=');", "app/Dashboard.php"),
+            ("<?php function assertDontSeeHtml() {}", "tests/dashboard_test.php"),
+            ("<?php class Dashboard { function assertDontSeeHtml() {} }", "tests/dashboard_test.php"),
+            ("<?php $assertDontSeeHtml = true;", "tests/dashboard_test.php"),
+            ("<?php $component->assertDontShowHtml();", "tests/dashboard_test.php"),
+            ("<?php $component->dont();", "tests/dashboard_test.php"),
+        ):
+            with self.subTest(source=source, path=path):
+                diagnostics = self.check_source(source, path)
+                self.assertTrue(diagnostics)
+                self.assertIn("'dont'", "\n".join(diagnostics))
 
     def test_sheet_output_headers_are_presentation_in_row_assertions(self):
         self.assert_accepted(self.SHEET_HELPER + """
