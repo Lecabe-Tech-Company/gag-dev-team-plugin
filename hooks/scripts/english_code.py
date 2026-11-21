@@ -116,7 +116,7 @@ _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS = {
 }
 _BLADE_END_IF = "endif"
 _BLADE_END_UNLESS = "endunless"
-_BLADE_END_FOREACH = "endforeach"
+_BLADE_END_FOR_EACH = "endforeach"
 _BLADE_END_WHILE = "endwhile"
 _BLADE_END_SWITCH = "endswitch"
 
@@ -285,15 +285,15 @@ def _blade_php_source(content, path):
                     cursor += 1
                 if cursor < len(content) and content[cursor] == "(":
                     raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} does not accept arguments.")
-                if name in {"else", _BLADE_END_IF, _BLADE_END_UNLESS, _BLADE_END_FOREACH, _BLADE_END_WHILE, _BLADE_END_SWITCH}:
-                    expected = {_BLADE_END_IF: {"if", "unless"}, _BLADE_END_UNLESS: {"unless"}, _BLADE_END_FOREACH: {"foreach"},
+                if name in {"else", _BLADE_END_IF, _BLADE_END_UNLESS, _BLADE_END_FOR_EACH, _BLADE_END_WHILE, _BLADE_END_SWITCH}:
+                    expected = {_BLADE_END_IF: {"if", "unless"}, _BLADE_END_UNLESS: {"unless"}, _BLADE_END_FOR_EACH: {"foreach"},
                                 _BLADE_END_WHILE: {"while"}, _BLADE_END_SWITCH: {"switch"}}
                     if name in expected:
                         if not directive_stack or directive_stack[-1] not in expected[name]:
                             raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unmatched @{name} directive.")
                         directive_stack.pop()
                     statement = {"else": "else:", _BLADE_END_IF: "endif;", _BLADE_END_UNLESS: "endif;",
-                                 _BLADE_END_FOREACH: "endforeach;", _BLADE_END_WHILE: "endwhile;",
+                                 _BLADE_END_FOR_EACH: "endforeach;", _BLADE_END_WHILE: "endwhile;",
                                  _BLADE_END_SWITCH: "endswitch;"}[name]
                     replace(index, end, "<?php " + statement + " ?>")
                 index = end
