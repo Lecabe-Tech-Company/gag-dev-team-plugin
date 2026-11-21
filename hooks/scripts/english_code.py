@@ -102,7 +102,7 @@ class LanguageCheckError(RuntimeError):
 
 _BLADE_DIRECTIVES_WITH_ARGUMENTS = {
     "auth", "can", "cannot", "cannotany", "canany", "checked", "class", "component",
-    "else", "elseif", "env", "error", "extends", "foreach", "forelse", "guest", "if",
+    "else", "elseif", "env", "error", "extends", "foreach", "guest", "if",
     "isset", "json", "method", "props", "selected", "section", "slot", "switch", "unless",
     "unset", "unlessguest", "while", "include", "includeif", "includewhen", "includeunless",
     "includefirst", "each", "aware", "pushif", "prependif", "pushonce", "once", "use",
@@ -111,9 +111,14 @@ _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS = {
     "else", "endif", "endunless", "endisset", "endempty", "endauth", "endcan", "endcannot",
     "endcanany", "endguest", "endproduction", "endenv", "endsection", "show", "stop", "append",
     "overwrite", "parent", "endpush", "endprepend", "endpushonce", "endonce", "break", "continue",
-    "endforeach", "endforelse", "endwhile", "default", "endswitch", "endphp", "endcomponent",
+    "endforeach", "endwhile", "default", "endswitch", "endphp", "endcomponent",
     "endverbatim", "csrf", "production", "stack",
 }
+_BLADE_END_IF = "endif"
+_BLADE_END_UNLESS = "endunless"
+_BLADE_END_FOREACH = "endforeach"
+_BLADE_END_WHILE = "endwhile"
+_BLADE_END_SWITCH = "endswitch"
 
 
 def _blade_php_source(content, path):
@@ -215,6 +220,8 @@ def _blade_php_source(content, path):
             if directive:
                 name = directive.group(1).lower()
                 end = index + directive.end()
+                if name == "forelse":
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @forelse control syntax is unsupported.")
                 if name in {"php", "endphp", "verbatim", "endverbatim"}:
                     raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported @{name} block.")
                 if name not in _BLADE_DIRECTIVES_WITH_ARGUMENTS and name not in _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS:
@@ -278,14 +285,16 @@ def _blade_php_source(content, path):
                     cursor += 1
                 if cursor < len(content) and content[cursor] == "(":
                     raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} does not accept arguments.")
-                if name in {"else", "endif", "endunless", "endforeach", "endforelse", "endwhile", "endswitch"}:
-                    expected = {"endif": {"if", "unless"}, "endunless": {"unless"}, "endforeach": {"foreach"},
-                                "endforelse": {"forelse"}, "endwhile": {"while"}, "endswitch": {"switch"}}
+                if name in {"else", _BLADE_END_IF, _BLADE_END_UNLESS, _BLADE_END_FOREACH, _BLADE_END_WHILE, _BLADE_END_SWITCH}:
+                    expected = {_BLADE_END_IF: {"if", "unless"}, _BLADE_END_UNLESS: {"unless"}, _BLADE_END_FOREACH: {"foreach"},
+                                _BLADE_END_WHILE: {"while"}, _BLADE_END_SWITCH: {"switch"}}
                     if name in expected:
                         if not directive_stack or directive_stack[-1] not in expected[name]:
                             raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unmatched @{name} directive.")
                         directive_stack.pop()
-                    statement = {"else": "else:", "endif": "endif;", "endunless": "endif;", "endforeach": "endforeach;", "endforelse": "endfor;", "endwhile": "endwhile;", "endswitch": "endswitch;"}[name]
+                    statement = {"else": "else:", _BLADE_END_IF: "endif;", _BLADE_END_UNLESS: "endif;",
+                                 _BLADE_END_FOREACH: "endforeach;", _BLADE_END_WHILE: "endwhile;",
+                                 _BLADE_END_SWITCH: "endswitch;"}[name]
                     replace(index, end, "<?php " + statement + " ?>")
                 index = end
                 continue
