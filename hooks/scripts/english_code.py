@@ -1,6 +1,7 @@
 """Check changed code identifiers against a pinned English word list."""
 import ast
 from collections import Counter
+import html
 import hashlib
 import json
 import re
@@ -14,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DICTIONARY = ROOT / "language_data" / "en_US.txt"
 DICTIONARY_SHA256 = "4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04"
+TECHNICAL_TERMS_FILE = ROOT / "technical_terms.json"
 SUPPORTED_EXTENSIONS = {".py", ".php", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".toml", ".css", ".sh", ".bash", ".yaml", ".yml"}
 SUPPORTED_EXTENSIONS.add(".blade.php")
 NON_ENGLISH_HOMOGRAPHS = {"nome", "dados", "valor", "valores"}
@@ -94,6 +96,7 @@ TREE_SITTER_LANGUAGES = {
     ".tsx": ("tree_sitter_typescript", "tsx"),
 }
 _DICTIONARY_CACHE = {}
+_TECHNICAL_TERMS_CACHE = {}
 
 
 class LanguageCheckError(RuntimeError):
@@ -128,6 +131,15 @@ _BLADE_SCRIPT_WRAPPER = re.compile(r"@script\b")
 _BLADE_SCRIPT_WRAPPER_END = re.compile(r"\s*@endscript\b")
 _BLADE_SCRIPT_MARKUP = re.compile(r"<\?|{{--|{{|{!!|@[A-Za-z][A-Za-z0-9_]*")
 _BLADE_SCRIPT_JSON = re.compile(r"@json[ \t]*\(")
+_BLADE_EXECUTABLE_ATTRIBUTE = re.compile(
+    r"(?:x-(?:data|show|if|text|html|model)(?:\.[\w-]+)?|"
+    r"x-(?:on|bind):[\w:-]+(?:\.[\w-]+)*|@[A-Za-z][\w:-]*(?:\.[\w-]+)*|"
+    r":[\w:-]+|on[a-z]+)\Z",
+    re.I,
+)
+_BLADE_TAG_ATTRIBUTE = re.compile(
+    r"\s+(?P<name>[^\s=/>()[\]{}'\"]+)(?:\s*=\s*(?P<value>\"[^\"]*\"|'[^']*'|[^\s>]+))?"
+)
 
 
 def _blank_source(content):
@@ -221,10 +233,127 @@ def _blade_script_source(content, index, path):
     return end, "".join(php), ("".join(javascript), expressions)
 
 
+def _blade_opening_tags(content, script_ranges, path):
+    tags = []
+    for opening in re.finditer(r"<[A-Za-z][\w:-]*", content):
+        if any(start < opening.start() < end for start, end in script_ranges):
+            continue
+        quote = None
+        delimiters = []
+        cursor = opening.end()
+        while cursor < len(content):
+            character = content[cursor]
+            if quote:
+                if character == quote:
+                    quote = None
+            elif character in "\"'":
+                quote = character
+            elif character in "([{":
+                delimiters.append(character)
+            elif character in ")]}":
+                if delimiters:
+                    delimiters.pop()
+            elif character == ">" and not delimiters:
+                tags.append((opening.start(), cursor + 1, content[opening.start():cursor + 1]))
+                break
+            elif character == "<":
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed tag attributes.")
+            cursor += 1
+        else:
+            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed tag attributes.")
+    return tags
+
+
 def _blade_sources(content, path):
     """Expose Blade PHP and JavaScript while retaining original line numbers."""
     replacements = []
     scripts = []
+
+    # Parse explicitly supported Alpine/DOM handler expressions as JavaScript.
+    # Limit extraction to markup tags so JS such as `element.onload = ...` in a
+    # script block stays part of that script and is not mistaken for an attribute.
+    script_ranges = []
+    for opening in _BLADE_SCRIPT_OPEN.finditer(content):
+        closing = _BLADE_SCRIPT_CLOSE.search(content, opening.end())
+        script_ranges.append((opening.start(), closing.end() if closing else len(content)))
+    comment_ranges = []
+    comment_start = 0
+    while True:
+        comment_open = content.find("{{--", comment_start)
+        if comment_open < 0:
+            break
+        comment_close = content.find("--}}", comment_open + 4)
+        if comment_close < 0:
+            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unclosed Blade comment.")
+        comment_ranges.append((comment_open, comment_close + 4))
+        comment_start = comment_close + 4
+
+    for tag_start, _, tag_content in reversed(_blade_opening_tags(content, script_ranges + comment_ranges, path)):
+        if re.match(r"<\s*(?:script|style)\b", tag_content, re.I):
+            continue
+        tag_name = re.match(r"<[A-Za-z][\w:-]*", tag_content)
+        if not tag_name:
+            continue
+        attributes = []
+        cursor = tag_name.end()
+        while cursor < len(tag_content) - 1:
+            match = _BLADE_TAG_ATTRIBUTE.match(tag_content, cursor)
+            if not match:
+                if tag_content[cursor].isspace() or tag_content[cursor] == "/":
+                    cursor += 1
+                    continue
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed tag attributes.")
+            cursor = match.end()
+            attribute_name = match.group("name")
+            lowered_name = attribute_name.lower()
+            if lowered_name.startswith("@") and not match.group("value"):
+                directive_cursor = cursor
+                while directive_cursor < len(tag_content) and tag_content[directive_cursor].isspace():
+                    directive_cursor += 1
+                if directive_cursor < len(tag_content) and tag_content[directive_cursor] == "(":
+                    close_at = _blade_expression_end(tag_content, directive_cursor + 1)
+                    if close_at is None:
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': malformed Blade directive in tag.")
+                    cursor = close_at + 1
+                continue
+            if lowered_name.startswith("wire:"):
+                wire_value = match.group("value")
+                if wire_value and (wire_value[0] not in "\"'" or wire_value[1:-1].strip()):
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': executable Livewire attribute '{attribute_name}' is unsupported.")
+                continue
+            if not _BLADE_EXECUTABLE_ATTRIBUTE.fullmatch(attribute_name):
+                if lowered_name.startswith("x-") or re.fullmatch(r"on[a-z]+", lowered_name):
+                    raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported executable attribute '{attribute_name}'.")
+                continue
+            if attribute_name.startswith(":") and tag_name.group().lower().startswith("<x-"):
+                # Blade component bindings use PHP expressions; Alpine shorthand
+                # bindings on regular HTML elements are parsed as JavaScript.
+                continue
+            value = match.group("value")
+            if not value or value[0] not in "\"'" or value[-1] != value[0]:
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': executable attributes must have quoted expressions.")
+            attributes.append((match, attribute_name, value[1:-1]))
+
+        for match, attribute_name, raw_expression in reversed(attributes):
+            normalized_expression = re.sub(r"&#(?:0*10|x0*a);", " ", raw_expression, flags=re.I)
+            normalized_expression = re.sub(r"&#(?:0*13|x0*d);", " ", normalized_expression, flags=re.I)
+            expression = html.unescape(normalized_expression)
+            if re.search(r"\{\{|\{!!|@(?:json|js|entangle)\b", expression):
+                raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported Blade expression inside an Alpine or JavaScript attribute.")
+            value_start = match.start("value") + 1
+            source_offset = tag_start + value_start
+            line_prefix = "\n" * content.count("\n", 0, source_offset)
+            attribute_name = attribute_name.lower()
+            if attribute_name.startswith(("x-on:", "@", "on")):
+                javascript = "(() => { " + expression + "\n})();"
+            else:
+                javascript = "const __alpine_expression = (" + expression + ");"
+            scripts.append((line_prefix + javascript, []))
+            absolute_start = tag_start + match.start()
+            absolute_end = tag_start + match.end()
+            removed = content[absolute_start:absolute_end]
+            blanked = "".join("\n" if character == "\n" else " " for character in removed)
+            content = content[:absolute_start] + blanked + content[absolute_end:]
 
     def replace(start, end, replacement):
         if content[start:end].count("\n") != replacement.count("\n"):
@@ -409,9 +538,31 @@ def _blade_sources(content, path):
     output = content
     for start, end, replacement in sorted(replacements, reverse=True):
         output = output[:start] + replacement + output[end:]
-    if re.search(r"<\s*/?\s*style\b|\s(?:x-[\w:-]+|on[a-z]+)\s*=|\s+wire:[\w.-]+\s*=\s*(?:[^\"']|[\"']\s*[^\"'])", output, re.I):
+    if re.search(r"<\s*/?\s*style\b", output, re.I):
         raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': embedded CSS, JavaScript handlers or Alpine expressions are unsupported.")
     return output, scripts
+
+
+def load_technical_terms():
+    try:
+        contents = TECHNICAL_TERMS_FILE.read_bytes()
+        text = contents.decode("utf-8")
+        payload = json.loads(text)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise LanguageCheckError("The bundled technical terminology file is unavailable or invalid.") from error
+    digest = hashlib.sha256(contents).hexdigest()
+    if digest in _TECHNICAL_TERMS_CACHE:
+        return _TECHNICAL_TERMS_CACHE[digest]
+    if not isinstance(payload, dict) or set(payload) != {"terms"} or not isinstance(payload["terms"], list):
+        raise LanguageCheckError("The bundled technical terminology file has an invalid schema.")
+    terms = payload["terms"]
+    if any(not isinstance(term, str) or not re.fullmatch(r"[a-z][a-z0-9]*", term) for term in terms):
+        raise LanguageCheckError("The bundled technical terminology file contains an invalid term.")
+    if len(terms) != len(set(terms)):
+        raise LanguageCheckError("The bundled technical terminology file contains duplicate terms.")
+    result = set(terms)
+    _TECHNICAL_TERMS_CACHE[digest] = result
+    return result
 
 
 def load_dictionary():
@@ -422,8 +573,10 @@ def load_dictionary():
         raise LanguageCheckError("The bundled English identifier dictionary is unavailable.") from error
     if hashlib.sha256(contents).hexdigest() != DICTIONARY_SHA256:
         raise LanguageCheckError("The bundled English identifier dictionary failed its integrity check.")
-    if DICTIONARY_SHA256 in _DICTIONARY_CACHE:
-        return _DICTIONARY_CACHE[DICTIONARY_SHA256]
+    technical_terms = load_technical_terms()
+    cache_key = (DICTIONARY_SHA256, tuple(sorted(technical_terms)))
+    if cache_key in _DICTIONARY_CACHE:
+        return _DICTIONARY_CACHE[cache_key]
     lines = text.splitlines()
     if len(lines) != 109902:
         raise LanguageCheckError("The bundled English identifier dictionary is incomplete.")
@@ -434,8 +587,8 @@ def load_dictionary():
             words.add(word)
     if len(words) < 30000:
         raise LanguageCheckError("The bundled English identifier dictionary is invalid.")
-    dictionary = words | TECHNICAL_WORDS
-    _DICTIONARY_CACHE[DICTIONARY_SHA256] = dictionary
+    dictionary = words | TECHNICAL_WORDS | technical_terms
+    _DICTIONARY_CACHE[cache_key] = dictionary
     return dictionary
 
 
