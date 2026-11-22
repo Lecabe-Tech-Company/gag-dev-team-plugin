@@ -40,7 +40,7 @@ class TechnicalTermsTests(unittest.TestCase):
         self.assertIn("'quantidade'", diagnostics[0])
         self.assertIn("metrics.py:1:", diagnostics[0])
 
-    def test_prefixes_and_substrings_are_not_registered_by_an_exact_token(self):
+    def test_prefixes_and_word_parts_are_not_registered_by_an_exact_token(self):
         diagnostics = self.verify("def calculate_xkpisx():\n    return 1\n")
         self.assertEqual(len(diagnostics), 1, diagnostics)
         self.assertIn("'xkpisx'", diagnostics[0])
