@@ -34,7 +34,7 @@ class ReleaseBuildTests(ProjectCase):
             with zipfile.ZipFile(artifact) as archive:
                 names = set(archive.namelist())
                 required = {"package.json", "plugin.json", "scripts/project_install.py", "scripts/harness_adapters.py", "scripts/releases.py", "scripts/sdd_gate.py", "hooks/scripts/team_hooks.py", "bin/runtime.cjs", "bin/gag-dev-team.cjs", "mcp/scripta_bridge.cjs", "mcp/scripta_headers.cjs", "ui/brand/scripta-icon.png", "skills/caveman/SKILL.md", "skills/caveman/LICENSE"}
-                required.update({"hooks/scripts/english_code.py", "hooks/scripts/language_data/en_US.txt",
+                required.update({"hooks/scripts/english_code.py", "hooks/scripts/technical_terms.json", "hooks/scripts/language_data/en_US.txt",
                                  "hooks/scripts/language_data/ENGLISH_DICTIONARY_LICENSE.txt"})
                 self.assertTrue(required <= names, required - names)
                 self.assertFalse(any(name.startswith((".git/", ".gag-dev-team/", "tests/")) or "__pycache__" in name for name in names))
@@ -63,13 +63,21 @@ class ReleaseBuildTests(ProjectCase):
                 "import sys; sys.path.insert(0, sys.argv[1]); "
                 "from english_code import validate_changes; "
                 "invalid = validate_changes([{'path':'orders.py','content':'pedido = 1\\n','added_lines':{1},'path_changed':True}]); "
-                "valid = validate_changes([{'path':'orders.py','content':'order_count = 1\\n','added_lines':{1},'path_changed':True}]); "
+                "valid = validate_changes([{'path':'orders.py','content':'order_kpis = 1\\n','added_lines':{1},'path_changed':True}]); "
                 "assert invalid, 'Portuguese code was accepted'; assert not valid, valid; print('checked')"
             )
             checked = subprocess.run(["python3", "-c", program, str(runtime)],
                                      cwd=temp, capture_output=True, text=True, timeout=20)
             self.assertEqual(checked.returncode, 0, checked.stderr)
             self.assertEqual(checked.stdout.strip(), "checked")
+            terms_file = runtime / "technical_terms.json"
+            original_terms = terms_file.read_bytes()
+            terms_file.unlink()
+            missing_terms = subprocess.run(["python3", "-c", program, str(runtime)],
+                                           cwd=temp, capture_output=True, text=True, timeout=20)
+            self.assertNotEqual(missing_terms.returncode, 0,
+                                "Missing technical vocabulary must block the installed gate")
+            terms_file.write_bytes(original_terms)
             (runtime / "language_data/en_US.txt").unlink()
             missing = subprocess.run(["python3", "-c", program, str(runtime)],
                                      cwd=temp, capture_output=True, text=True, timeout=20)

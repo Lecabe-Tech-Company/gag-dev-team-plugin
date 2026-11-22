@@ -84,6 +84,28 @@ class EnglishGateTests(unittest.TestCase):
         self.assertIn("header.blade.php:2:", str(denied.exception))
         self.assertEqual(self.graphify_calls, 0)
 
+    def test_registered_dashboard_acronym_passes_the_committed_diff_gate(self):
+        self.commit({"metrics.py": "def calculate_kpis():\n    return 1\n"})
+        self.analyze()
+        record = json.loads((self.root / "graphify-out/pr-check/prod/check.json").read_text())
+        self.assertEqual(record["language"]["result"], "passed")
+        self.assertEqual(self.graphify_calls, 1)
+
+    def test_missing_technical_vocabulary_blocks_before_graph_extraction(self):
+        self.commit({"metrics.py": "def calculate_total():\n    return 1\n"})
+        sys.path.insert(0, str(graph_tests.ROOT / "hooks/scripts"))
+        self.addCleanup(sys.path.remove, str(graph_tests.ROOT / "hooks/scripts"))
+        policy = importlib.import_module("english_code")
+        with patch.object(policy, "TECHNICAL_TERMS_FILE", self.root / "missing_terms.json"):
+            with self.assertRaises(self.hook.GateError):
+                self.analyze()
+        self.assertEqual(self.graphify_calls, 0)
+
+    def test_alpine_attributes_are_verified_in_the_committed_diff(self):
+        self.commit({"resources/views/header.blade.php": '<div x-data="{ orderCount: 1 }" x-show="orderCount > 0">Resumo</div>\n'})
+        self.analyze()
+        self.assertEqual(self.graphify_calls, 1)
+
     def test_blade_english_code_is_included_in_full_gate(self):
         self.commit({"resources/views/header.blade.php": "<h2>Relatório</h2>\n{{ $orderCount }}\n"})
         self.analyze()
