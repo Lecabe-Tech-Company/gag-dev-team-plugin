@@ -48,7 +48,7 @@ class ConfigurationLanguageGateTests(unittest.TestCase):
                 self.assertEqual(self.graphify_calls, 0)
                 self.assertEqual(self.exported_paths, [])
 
-    def test_dotenv_is_skipped_with_either_committed_mode(self):
+    def test_environment_is_skipped_with_either_committed_mode(self):
         self.assert_configuration_modes_are_skipped(
             ".env.example", '# Configuração sintética\r\nAPP_NAME="Produção"\r\n'
             "DB_CONNECTION=pgsql\r\nPEDIDO_TOTAL=2\r\nEMPTY=\r\n"

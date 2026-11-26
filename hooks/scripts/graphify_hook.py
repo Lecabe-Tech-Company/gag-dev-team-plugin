@@ -28,7 +28,7 @@ NON_CODE_NAMES = {"LICENSE", "NOTICE", "COPYING", "README", "CONTRIBUTING", ".GI
 
 def is_environment_filename(filename):
     """Match environment-file names without accepting similar prefixes."""
-    return re.fullmatch(r"\.env(?:\.[A-Za-z0-9_-]+)*", filename, re.IGNORECASE) is not None
+    return re.fullmatch(r"\.env(?:\.[a-z0-9_-]+)*", filename.lower()) is not None
 
 
 class GateError(Exception):
