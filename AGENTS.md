@@ -14,6 +14,8 @@ Use `manage-user-skills` para skills particulares armazenadas no perfil privado 
 
 Código, nomes de arquivos de código e identificadores técnicos devem ser em inglês. Planejamento, SDD, documentação e acompanhamento podem ser em português; labels e textos do frontend podem ser em pt-BR. O hook de abertura de PR deve negar código fora da regra e verificações incompletas. Consulte a seção 13 de `skills/development-workflow/SKILL.md`.
 
+Para esta checagem, o bit executável, sozinho, não transforma `.env.example` nem `composer.lock` em código; valores e metadados desses arquivos não precisam estar em inglês. A exceção vale apenas para esses nomes exatos. Preserve a checagem quando a extensão indicar código ou o arquivo tiver shebang, mesmo que o nome pareça de configuração.
+
 Este repositório fonte oficial usa `master`: crie worktree a partir de `origin/master` e PR para `master`. A exigência de `stage/prod` abaixo aplica-se aos projetos atendidos pelo plugin.
 
 ## Fontes de consulta

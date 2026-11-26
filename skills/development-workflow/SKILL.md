@@ -147,6 +147,8 @@ A checagem Graphify existente não substitui testes nem verifica seus resultados
 
 Código e nomes de arquivos de código devem ser em inglês. Isso inclui classes, métodos, funções, variáveis, propriedades, parâmetros, constantes, namespaces, módulos e demais identificadores técnicos. Código de testes segue a mesma regra. Não misture português e inglês em identificadores, como `calcularTotal`.
 
+Para esta checagem, o bit executável, sozinho, não transforma `.env.example` nem `composer.lock` em código; valores e metadados desses arquivos não precisam estar em inglês. A exceção vale apenas para esses nomes exatos. Preserve a checagem quando a extensão indicar código ou o arquivo tiver shebang, mesmo que o nome pareça de configuração.
+
 Planejamento, SDD, documentação, acompanhamento, mensagens de commit e descrições de PR podem ser em português. Labels e textos apresentados ao usuário no frontend também podem ser em pt-BR. Essa permissão não transforma qualquer string interna em texto de frontend.
 
 Antes de uma abertura de PR reconhecida pelo plugin, o hook verifica o idioma do código novo ou alterado no diff commitado contra o destino. Violação, falha ou análise incompleta negam a operação antes da criação do PR. Corrija os nomes ou regularize a análise e repita a verificação; não contorne o hook. Siglas técnicas e nomes impostos por frameworks ou contratos externos precisam de tratamento explícito e verificável, sem exceções genéricas por diretório.

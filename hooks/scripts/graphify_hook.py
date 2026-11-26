@@ -24,6 +24,13 @@ NON_CODE_EXTENSIONS = {
     ".woff2", ".ttf", ".otf", ".dic", ".lock", ".sum",
 }
 NON_CODE_NAMES = {"LICENSE", "NOTICE", "COPYING", "README", "CONTRIBUTING", ".GITATTRIBUTES", ".GITIGNORE", ".GITKEEP", ".NPMIGNORE"}
+
+
+def is_environment_filename(filename):
+    """Match environment-file names without accepting similar prefixes."""
+    return re.fullmatch(r"\.env(?:\.[A-Za-z0-9_-]+)*", filename, re.IGNORECASE) is not None
+
+
 class GateError(Exception):
     pass
 
@@ -170,8 +177,14 @@ def analyze_pr(request, binary):
                 raise GateError(f"Não foi possível verificar idioma do arquivo {relative}: tipo de arquivo não suportado.")
             contents = run(["git", "show", head_commit + ":" + relative], cwd=root)
             suffix = path.suffix.lower()
-            code_candidate = suffix in CODE_EXTENSIONS or modes[relative] == b"100755" or contents.startswith(b"#!")
-            if path.name.lower().startswith(".env") and not code_candidate:
+            has_code_extension = suffix in CODE_EXTENSIONS
+            has_shebang = contents.startswith(b"#!")
+            is_generated_configuration = path.name in {".env.example", "composer.lock"}
+            if is_generated_configuration and not has_code_extension and not has_shebang:
+                skipped.append(relative)
+                continue
+            code_candidate = has_code_extension or modes[relative] == b"100755" or has_shebang
+            if is_environment_filename(path.name) and not code_candidate:
                 skipped.append(relative)
                 continue
             if not code_candidate and (suffix in NON_CODE_EXTENSIONS or path.name.upper() in NON_CODE_NAMES):
