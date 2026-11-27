@@ -93,6 +93,30 @@ Resumo
         diagnostics = self.verify('<x-alert :title="$pedido->getLabel()" />\n')
         self.assertTrue(any("'pedido'" in item for item in diagnostics), diagnostics)
 
+    def test_wire_init_method_names_are_checked_on_original_lines(self):
+        for quote in ('"', "'"):
+            with self.subTest(quote=quote):
+                source = f'<p>Resumo</p>\n<div wire:init={quote}loadOrders{quote}></div>'
+                self.assertEqual(self.verify(source), [])
+                result = self.verify(source.replace('loadOrders', 'carregarPedidos'), {2})
+                for token in ("carregar", "pedidos"):
+                    self.assertTrue(any("header.blade.php:2:" in item and f"'{token}'" in item for item in result), result)
+
+    def test_wire_init_uncovered_expressions_fail_closed(self):
+        for source in (
+            '<div wire:init=""></div>',
+            '<div wire:init="loadOrders()"></div>',
+            '<div wire:init="loadOrders(1)"></div>',
+            '<div wire:init="loadOrders; otherAction"></div>',
+            '<div wire:init="order.loadOrders"></div>',
+            '<div wire:init=loadOrders></div>',
+            '<div wire:init.lazy="loadOrders"></div>',
+            '<div wire:click="loadOrders"></div>',
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(policy.LanguageCheckError):
+                    self.verify(source)
+
     def test_malformed_or_uncovered_attributes_still_fail_closed(self):
         for source in (
             '<div x-data="{ open: }"></div>',

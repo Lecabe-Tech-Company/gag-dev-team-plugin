@@ -108,14 +108,14 @@ _BLADE_DIRECTIVES_WITH_ARGUMENTS = {
     "else", "elseif", "env", "error", "extends", "foreach", "guest", "if",
     "isset", "json", "method", "props", "selected", "section", "slot", "switch", "unless",
     "unset", "unlessguest", "while", "include", "includeif", "includewhen", "includeunless",
-    "includefirst", "each", "aware", "pushif", "prependif", "pushonce", "once", "use",
+    "includefirst", "each", "aware", "pushif", "prependif", "pushonce", "once", "use", "livewire",
 }
 _BLADE_DIRECTIVES_WITHOUT_ARGUMENTS = {
     "else", "endif", "endunless", "endisset", "endempty", "endauth", "endcan", "endcannot",
     "endcanany", "endguest", "endproduction", "endenv", "endsection", "show", "stop", "append",
     "overwrite", "parent", "endpush", "endprepend", "endpushonce", "endonce", "break", "continue",
     "endforeach", "endwhile", "default", "endswitch", "endphp", "endcomponent",
-    "endverbatim", "csrf", "production", "stack",
+    "endverbatim", "csrf", "production", "stack", "assets", "endassets",
 }
 _BLADE_END_IF = "endif"
 _BLADE_END_UNLESS = "endunless"
@@ -318,6 +318,13 @@ def _blade_sources(content, path):
                 continue
             if lowered_name.startswith("wire:"):
                 wire_value = match.group("value")
+                if lowered_name == "wire:init":
+                    if not wire_value or wire_value[0] not in "\"'" or wire_value[-1] != wire_value[0]:
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': executable attributes must have quoted expressions.")
+                    if not re.fullmatch(r"\s*[A-Za-z_][A-Za-z0-9_]*\s*", wire_value[1:-1]):
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unsupported Livewire initialization expression.")
+                    attributes.append((match, attribute_name, wire_value[1:-1]))
+                    continue
                 if wire_value and (wire_value[0] not in "\"'" or wire_value[1:-1].strip()):
                     raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': executable Livewire attribute '{attribute_name}' is unsupported.")
                 continue
@@ -503,6 +510,11 @@ def _blade_sources(content, path):
                         directive_stack.append(name)
                     prefix = "<?php "
                     suffix = "; ?>"
+                    if name == "livewire":
+                        if not content[cursor + 1:close_at].strip():
+                            raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} directive has no parseable expression.")
+                        prefix = "<?php ["
+                        suffix = "]; ?>"
                     if name in {"if", "elseif", "unless", "while", "foreach", "switch", "can", "cannot", "canany", "cannotany"}:
                         keyword = "if" if name == "unless" else name
                         expression = content[cursor + 1:close_at]
@@ -519,6 +531,12 @@ def _blade_sources(content, path):
                     cursor += 1
                 if cursor < len(content) and content[cursor] == "(":
                     raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': @{name} does not accept arguments.")
+                if name == "assets":
+                    directive_stack.append(name)
+                elif name == "endassets":
+                    if not directive_stack or directive_stack[-1] != "assets":
+                        raise LanguageCheckError(f"Cannot verify changed Blade file '{path}': unmatched @{name} directive.")
+                    directive_stack.pop()
                 if name in {"else", _BLADE_END_IF, _BLADE_END_UNLESS, _BLADE_END_FOR_EACH, _BLADE_END_WHILE, _BLADE_END_SWITCH}:
                     expected = {_BLADE_END_IF: {"if", "unless"}, _BLADE_END_UNLESS: {"unless"}, _BLADE_END_FOR_EACH: {"foreach"},
                                 _BLADE_END_WHILE: {"while"}, _BLADE_END_SWITCH: {"switch"}}
