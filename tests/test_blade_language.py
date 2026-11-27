@@ -203,6 +203,87 @@ const quantidade = orderCount;
         result = self.verify(source, {6})
         self.assertTrue(any("header.blade.php:6:" in item for item in result), result)
 
+    def test_assets_wrapper_preserves_php_and_script_analysis(self):
+        source = """@assets
+@php $orderCount = 2; @endphp
+<script>
+const orderCount = @json($orderCount);
+window.console.log(orderCount);
+</script>
+@endassets
+"""
+        self.assertEqual(self.verify(source), [])
+        for line_number, original, replacement in (
+            (2, "$orderCount = 2", "$quantidade = 2"),
+            (4, "const orderCount", "const quantidade"),
+        ):
+            with self.subTest(line_number=line_number):
+                result = self.verify(source.replace(original, replacement), {line_number})
+                self.assertTrue(any(f"header.blade.php:{line_number}:" in item and "'quantidade'" in item for item in result), result)
+
+    def test_assets_wrapper_preserves_changed_line_filtering(self):
+        source = "@assets\n{{ $quantidade }}\n{{ $orderCount }}\n@endassets\n"
+        self.assertEqual(self.verify(source, {3}), [])
+        result = self.verify(source, {2})
+        self.assertTrue(any("header.blade.php:2:" in item and "'quantidade'" in item for item in result), result)
+
+    def test_assets_wrappers_can_be_sequential_and_nested_in_control_flow(self):
+        for source in (
+            "@assets<p>Resumo</p>@endassets\n@assets{{ $orderCount }}@endassets",
+            "@if ($active)@assets{{ $orderCount }}@endassets@endif",
+            "@assets@if ($active){{ $orderCount }}@endif@endassets",
+            "@assets{{-- @endassets --}}{{ '@endassets' }}@endassets",
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(self.verify(source), [])
+
+    def test_malformed_assets_wrappers_fail_closed(self):
+        for source in (
+            "@assets<p>Resumo</p>",
+            "@endassets",
+            "@assets($orderCount)<p>Resumo</p>@endassets",
+            "@assets<p>Resumo</p>@endassets($orderCount)",
+            "@assets@if ($active)<p>Resumo</p>@endassets@endif",
+            "@if ($active)@assets<p>Resumo</p>@endif@endassets",
+            "@assets<script>const orderCount = ;</script>@endassets",
+            "@assets@unknownDirective($orderCount)@endassets",
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(policy.LanguageCheckError):
+                    self.verify(source)
+
+    def test_livewire_directive_checks_component_arguments_and_key(self):
+        source = "@livewire(\\App\\Livewire\\OrderForm::class, ['orderId' => $orderId], key('order-form-'.$orderId))"
+        self.assertEqual(self.verify(source), [])
+        for expression in (
+            "@livewire(\\App\\Livewire\\OrderForm::class)",
+            "@livewire(\\App\\Livewire\\OrderForm::class, ['orderId' => $orderId])",
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(self.verify(expression), [])
+        for original, replacement in (
+            ("OrderForm::class", "Formulario::class"),
+            ("$orderId", "$quantidade"),
+        ):
+            with self.subTest(replacement=replacement):
+                result = self.verify(source.replace(original, replacement))
+                self.assertTrue(result)
+                self.assertTrue(any("header.blade.php:1:" in item for item in result), result)
+
+    def test_livewire_directive_preserves_lines_and_rejects_malformed_expressions(self):
+        source = "@livewire(\n\\App\\Livewire\\OrderForm::class,\n['orderId' => $quantidade],\nkey($orderId)\n)"
+        self.assertEqual(self.verify(source, {4}), [])
+        result = self.verify(source, {3})
+        self.assertTrue(any("header.blade.php:3:" in item and "'quantidade'" in item for item in result), result)
+        for source in ("@livewire", "@livewire()", "@livewire(", "@livewire($orderId", "@livewire($orderId +)", "@livewire($orderId,,key($orderId))"):
+            with self.subTest(source=source):
+                with self.assertRaises(policy.LanguageCheckError):
+                    self.verify(source)
+
+    def test_assets_wrapper_does_not_allow_embedded_css(self):
+        with self.assertRaises(policy.LanguageCheckError):
+            self.verify("@assets\n<style>.order-count { color: red; }</style>\n@endassets")
+
     def test_script_syntax_and_uncovered_regions_fail_closed(self):
         for source in (
             "<script>const orderCount = ;</script>",
